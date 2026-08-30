@@ -498,7 +498,7 @@ func runJWXT(args []string, out io.Writer) int {
 	}
 	action := args[0]
 	var ocrURL, sessionPath, username, password, captcha, output, semester, week, mode string
-	var save, forget, confirm bool
+	var save, saveSet, forget, confirm bool
 	targetScore := 89
 	var courses []string
 	for i := 1; i < len(args); i++ {
@@ -512,6 +512,7 @@ func runJWXT(args []string, out io.Writer) int {
 			continue
 		}
 		if arg == "--save-credentials" {
+			saveSet = true
 			save = true
 			if i+1 < len(args) && (args[i+1] == "yes" || args[i+1] == "no") {
 				save = args[i+1] == "yes"
@@ -553,6 +554,9 @@ func runJWXT(args []string, out io.Writer) int {
 	}
 	if ocrURL == "" {
 		ocrURL = os.Getenv("QFNU_OCR_URL")
+	}
+	if !saveSet && strings.EqualFold(os.Getenv("QFNU_JWXT_SAVE_CREDENTIALS"), "yes") {
+		save = true
 	}
 	client := newJWXTClient(sessionPath, ocrURL)
 	if action == "forget-credentials" {
@@ -619,7 +623,20 @@ func (c *jwxtClient) status() (payload, error) {
 		return success("jwxt", payload{"logged_in": false, "session_path": c.sessionPath, "error": err.Error()}), nil
 	}
 	if status != http.StatusOK || containsAny(main, []string{"请输入账号", "请输入密码", "请输入验证码"}) || !containsAny(main, []string{"教学一体化服务平台", "glyphicon-class"}) {
-		return success("jwxt", payload{"logged_in": false, "session_path": c.sessionPath, "hint": "run qfnu jwxt login again"}), nil
+		if c.ocrURL != "" {
+			username, password := loadCredentialsFile()
+			if username != "" && password != "" {
+				if relogin, reloginErr := c.login(username, password, "", false); reloginErr == nil {
+					relogin["auto_relogin"] = true
+					return relogin, nil
+				}
+			}
+		}
+		hint := "run qfnu jwxt login again"
+		if c.ocrURL == "" && c.meta.Username != "" {
+			hint = "会话已过期且未配置 QFNU_OCR_URL；请运行 jwxt captcha，再用 jwxt login --captcha 提交识别结果"
+		}
+		return success("jwxt", payload{"logged_in": false, "session_path": c.sessionPath, "hint": hint}), nil
 	}
 	profile := parseProfile(main)
 	if pstatus, _, body, _ := c.text(http.MethodGet, profileURL, nil, nil); pstatus == http.StatusOK {
