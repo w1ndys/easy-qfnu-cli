@@ -1,0 +1,71 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_REPO: w1ndys/easy-qfnu-skill
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Test
+        run: go test ./...
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          suffix=""
+          if [ "${GOOS}" = "windows" ]; then suffix=".exe"; fi
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/w1ndys/easy-qfnu-cli/internal/qfnu.version=${GITHUB_REF_NAME}" \
+            -o "dist/qfnu-${GOOS}-${GOARCH}${suffix}" ./cmd/qfnu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qfnu-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/qfnu-*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: qfnu-*
+          path: dist
+          merge-multiple: true
+      - name: Publish public release
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+        run: |
+          set -eu
+          find dist -mindepth 2 -type f -exec mv {} dist/ \; 2>/dev/null || true
+          find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true
+          (cd dist && sha256sum qfnu-* > checksums.txt)
+          gh release create "${GITHUB_REF_NAME}" --repo "${RELEASE_REPO}" \
+            --title "qfnu ${GITHUB_REF_NAME}" --generate-notes dist/qfnu-* dist/checksums.txt
