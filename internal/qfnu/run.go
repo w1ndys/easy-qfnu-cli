@@ -28,14 +28,17 @@ func usage(w io.Writer) int {
 	return 2
 }
 
-// Run dispatches the stable qfnu command contract. It deliberately avoids a
+// Run dispatches the stable easy-qfnu command contract. It deliberately avoids a
 // third-party parser so the released binary has no runtime dependencies.
 func Run(args []string, out, errOut io.Writer) int {
+	if code := checkUpdates(out, errOut); code != 0 {
+		return code
+	}
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		return usage(errOut)
 	}
 	if args[0] == "version" || args[0] == "--version" {
-		return writeJSON(out, success("qfnu", payload{"version": version, "command": "easy-qfnu"}))
+		return writeJSON(out, success("easy-qfnu", payload{"version": version, "command": "easy-qfnu"}))
 	}
 	if len(args) < 2 {
 		return usage(errOut)

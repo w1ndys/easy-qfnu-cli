@@ -1,0 +1,8 @@
+interface:
+  display_name: "easy-qfnu 发布"
+  short_description: "从本地 Go 仓库构建并发布日期版 Release"
+  brand_color: "#1F4E79"
+  default_prompt: "使用 $easy-qfnu-release 从本地 CLI 仓库构建并发布今天的日期版本。"
+
+policy:
+  allow_implicit_invocation: true

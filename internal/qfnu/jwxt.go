@@ -169,7 +169,7 @@ func (c *jwxtClient) request(method, target string, body io.Reader, headers map[
 	if err != nil {
 		return 0, "", nil, err
 	}
-	req.Header.Set("User-Agent", "easy-qfnu-skill/qfnu")
+	req.Header.Set("User-Agent", "easy-qfnu-skill/easy-qfnu")
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}

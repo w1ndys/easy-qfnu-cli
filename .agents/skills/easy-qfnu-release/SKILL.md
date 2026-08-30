@@ -1,0 +1,48 @@
+---
+name: easy-qfnu-release
+description: Build and publish easy-qfnu date-tagged release binaries from a local Go CLI repository with the authenticated GitHub CLI, without GitHub Actions.
+---
+
+# easy-qfnu 发布
+
+使用此 skill 将当前 CLI 仓库构建为日期版本并发布到公共 GitHub Release。它适用于用户明确要求发布新版本、重新发布当天版本或检查发布产物；不用于普通 Go 开发或 GitHub Actions 配置。
+
+## 约定
+
+- 版本标签使用 `vYYYY.MM.DD.HHmm`，默认采用当前本地时间，例如 `v2026.08.30.1430`；时区以执行发布命令的机器为准。
+- 此 skill 随 CLI 源码仓库维护，源码仓库默认由 skill 脚本所在位置自动定位，可用 `EASY_QFNU_CLI_REPO` 或 `--repo` 覆盖。
+- 目标 Release 仓库默认为 `w1ndys/easy-qfnu-skill`，可用 `EASY_QFNU_PUBLIC_REPO` 或 `--public-repo` 覆盖。
+- 产物为 `easy-qfnu-linux-amd64`、`easy-qfnu-linux-arm64`、`easy-qfnu-darwin-amd64`、`easy-qfnu-darwin-arm64`、`easy-qfnu-windows-amd64.exe`、`checksums.txt` 和 `manifest.json`。
+- `manifest.json` 同时记录 `release_version`、`cli_version`、`skill_version` 及每个平台产物的 SHA-256；CLI 启动时依赖它执行强制版本检查。
+- `skill_version` 必须与公开 skill 仓库 `easy-qfnu-skill/VERSION` 的内容一致；skill 内容更新时先更新该文件并提交，再发布对应 Release。
+
+## 发布流程
+
+1. 在 CLI 仓库根目录先执行默认 dry-run。脚本会检查本地仓库是否干净、验证 `gh` 登录、运行 `go test ./...`，并在临时目录交叉构建五个平台；此阶段不创建标签、不推送代码、不上传 Release。
+
+   ```bash
+   python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py
+   ```
+
+2. 把 dry-run 的版本号、构建结果和目标仓库告知用户，获得本次发布的明确确认后，才加 `--publish`：
+
+   ```bash
+   python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py --publish
+   ```
+
+3. 同一分钟已有版本时，默认停止并要求判断。只有用户明确要求覆盖当前 Release 时才使用 `--replace`；该选项会强制更新源码仓库日期时间标签并覆盖公共 Release 资产：
+
+   ```bash
+   python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py --publish --replace
+   ```
+
+4. 只重建公共 Release、但不改动 CLI 源码仓库标签时，使用 `--public-only`。这适用于修复已有 Release 的资产或版本清单：
+
+   ```bash
+   python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py \
+     --version v0.1.1 --skill-version v0.1.1 --publish --replace --public-only
+   ```
+
+脚本使用本机 `gh` 的登录身份完成 GitHub 操作，不读取或打印 Token，也不依赖 GitHub Actions。发布完成后会再次读取 Release 资产，确认五个平台文件、`checksums.txt` 和 `manifest.json` 都存在。
+
+不要在没有用户明确确认的情况下运行 `--publish` 或 `--replace`。如果源码仓库有未提交修改、版本格式不合法、测试失败、交叉编译失败或 GitHub 权限不足，应停止并报告具体错误。重新发布历史版本时，必须明确指定对应的 `--skill-version`；如果只操作公开仓库，必须同时使用 `--public-only`，避免移动源码仓库的历史标签。
