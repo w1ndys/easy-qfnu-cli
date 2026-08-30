@@ -26,3 +26,5 @@ python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py
 ```
 
 确认构建结果后，再使用 `--publish` 发布；同一分钟覆盖已有版本时额外使用 `--replace`。
+
+发布脚本会读取上一个日期版本以来 CLI 和 skill 仓库的提交，按固定章节生成面向用户的中文 Release 文案。dry-run 会打印完整文案供检查；如需人工调整，使用 `--notes-file <file>` 传入修订后的文案。Release 标题只使用版本号，不添加产品名或括号信息。

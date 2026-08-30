@@ -1,6 +1,6 @@
 ---
 name: easy-qfnu-release
-description: Build and publish easy-qfnu date-tagged release binaries from a local Go CLI repository with the authenticated GitHub CLI, without GitHub Actions.
+description: Build and publish easy-qfnu date-tagged release binaries and fixed-format user-facing release notes from a local Go CLI repository with the authenticated GitHub CLI, without GitHub Actions.
 ---
 
 # easy-qfnu 发布
@@ -15,6 +15,8 @@ description: Build and publish easy-qfnu date-tagged release binaries from a loc
 - 产物为 `easy-qfnu-linux-amd64`、`easy-qfnu-linux-arm64`、`easy-qfnu-darwin-amd64`、`easy-qfnu-darwin-arm64`、`easy-qfnu-windows-amd64.exe`、`checksums.txt` 和 `manifest.json`。
 - `manifest.json` 同时记录 `release_version`、`cli_version`、`skill_version` 及每个平台产物的 SHA-256；CLI 启动时依赖它执行强制版本检查。
 - `skill_version` 必须与公开 skill 仓库 `easy-qfnu-skill/VERSION` 的内容一致；skill 内容更新时先更新该文件并提交，再发布对应 Release。
+- Release 标题固定为版本号本身，例如 `v2026.08.30.1720`，不添加产品名或括号中的版本信息。
+- Release 正文固定包含“发布说明、功能更新、修复问题、改进与维护、安装、版本信息”六个章节。脚本会读取上一个公开 Release 到当前 HEAD 的提交，并按 Conventional Commit 类型生成中文用户更新点。
 
 ## 发布流程
 
@@ -24,10 +26,17 @@ description: Build and publish easy-qfnu date-tagged release binaries from a loc
    python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py
    ```
 
-2. 把 dry-run 的版本号、构建结果和目标仓库告知用户，获得本次发布的明确确认后，才加 `--publish`：
+2. 检查 dry-run 输出的上一个 Release、变更范围和完整 Release 文案。确认功能更新点确实面向用户、没有泄露内部信息；必要时将人工修订后的固定格式文案写入文件，通过 `--notes-file` 传入。获得本次发布的明确确认后，才加 `--publish`：
 
    ```bash
    python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py --publish
+   ```
+
+   自定义文案示例：
+
+   ```bash
+   python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py \
+     --notes-file /path/to/release-notes.md --publish
    ```
 
 3. 同一分钟已有版本时，默认停止并要求判断。只有用户明确要求覆盖当前 Release 时才使用 `--replace`；该选项会强制更新源码仓库日期时间标签并覆盖公共 Release 资产：
@@ -40,9 +49,9 @@ description: Build and publish easy-qfnu date-tagged release binaries from a loc
 
    ```bash
    python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py \
-     --version v0.1.1 --skill-version v0.1.1 --publish --replace --public-only
+     --version v2026.08.30.1625 --skill-version v2026.08.30.1625 --publish --replace --public-only
    ```
 
-脚本使用本机 `gh` 的登录身份完成 GitHub 操作，不读取或打印 Token，也不依赖 GitHub Actions。发布完成后会再次读取 Release 资产，确认五个平台文件、`checksums.txt` 和 `manifest.json` 都存在。
+脚本使用本机 `gh` 的登录身份完成 GitHub 操作，不读取或打印 Token，也不依赖 GitHub Actions。发布完成后会再次读取 Release 资产，确认五个平台文件、`checksums.txt` 和 `manifest.json` 都存在，并确认标题与正文已写入。
 
 不要在没有用户明确确认的情况下运行 `--publish` 或 `--replace`。如果源码仓库有未提交修改、版本格式不合法、测试失败、交叉编译失败或 GitHub 权限不足，应停止并报告具体错误。重新发布历史版本时，必须明确指定对应的 `--skill-version`；如果只操作公开仓库，必须同时使用 `--public-only`，避免移动源码仓库的历史标签。
