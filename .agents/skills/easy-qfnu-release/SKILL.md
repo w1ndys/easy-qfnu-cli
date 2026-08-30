@@ -16,7 +16,7 @@ description: Build and publish easy-qfnu date-tagged release binaries and fixed-
 - `manifest.json` 同时记录 `release_version`、`cli_version`、`skill_version` 及每个平台产物的 SHA-256；CLI 启动时依赖它执行强制版本检查。
 - `skill_version` 必须与公开 skill 仓库 `easy-qfnu-skill/VERSION` 的内容一致；skill 内容更新时先更新该文件并提交，再发布对应 Release。
 - Release 标题固定为版本号本身，例如 `v2026.08.30.1720`，不添加产品名或括号中的版本信息。
-- Release 正文固定包含“发布说明、功能更新、修复问题、改进与维护、安装、版本信息”六个章节。脚本会读取上一个公开 Release 到当前 HEAD 的提交，并按 Conventional Commit 类型生成中文用户更新点。
+- Release 正文固定包含“发布说明、功能更新、修复问题、改进与维护、安装、版本信息”六个章节。脚本会读取上一个公开 Release 到当前 HEAD 的提交，并按 Conventional Commit 类型生成中文用户更新点；发布流程、CI 和测试提交会过滤掉，避免把内部实现细节展示给用户。
 
 ## 发布流程
 

@@ -188,6 +188,10 @@ def release_notes(
     grouped: dict[str, list[str]] = {"features": [], "fixes": [], "maintenance": []}
     seen: set[str] = set()
     for raw_subject in subjects:
+        match = COMMIT_RE.match(raw_subject)
+        scope = (match.group("scope") or "").lower() if match else ""
+        if scope in {"release", "ci", "test", "chore"}:
+            continue
         category, subject = classify_subject(raw_subject)
         subject = public_subject(subject)
         if not subject or subject in seen or raw_subject.lower().startswith("initial commit"):
