@@ -816,6 +816,107 @@ func parseEvaluationDetail(raw string, summary payload) (*evaluationDetail, erro
 	return detail, nil
 }
 
+func (c *jwxtClient) evaluationDetail(summary payload) (*evaluationDetail, error) {
+	href, _ := summary["href"].(string)
+	if href == "" {
+		return nil, &jwxtError{message: "evaluation detail link not found", hint: "课程列表没有提供评教链接"}
+	}
+	parsed, err := url.Parse(href)
+	if err != nil || parsed.Host != "zhjw.qfnu.edu.cn" {
+		return nil, &jwxtError{message: "evaluation detail URL is outside JWXT host"}
+	}
+	status, _, raw, err := c.text(http.MethodGet, href, nil, nil)
+	if err != nil || status != http.StatusOK {
+		return nil, &jwxtError{message: "evaluation detail page unavailable", hint: "请检查登录会话后重试"}
+	}
+	if containsAny(raw, []string{"请输入账号", "请输入密码", "请输入验证码"}) {
+		return nil, &jwxtError{message: "evaluation detail requires login", hint: "请先重新登录教务系统"}
+	}
+	return parseEvaluationDetail(raw, summary)
+}
+
+func evaluationPreset(detail *evaluationDetail, target int) (map[string]string, float64) {
+	totals := map[int]map[string]string{0: {}}
+	for _, id := range detail.IDs {
+		next := map[int]map[string]string{}
+		for total, selections := range totals {
+			for _, option := range detail.Options[id] {
+				score, _ := option["score"].(float64)
+				value, _ := option["option_id"].(string)
+				candidate := make(map[string]string, len(selections)+1)
+				for key, selected := range selections {
+					candidate[key] = selected
+				}
+				candidate[id] = value
+				scaled := int(score*100 + 0.5)
+				if _, exists := next[total+scaled]; !exists {
+					next[total+scaled] = candidate
+				}
+			}
+		}
+		totals = next
+	}
+	best, bestDistance := 0, int(^uint(0)>>1)
+	for total := range totals {
+		distance := total - target*100
+		if distance < 0 {
+			distance = -distance
+		}
+		if distance < bestDistance || (distance == bestDistance && total > best) {
+			best, bestDistance = total, distance
+		}
+	}
+	return totals[best], float64(best) / 100
+}
+
+func evaluationPreview(detail *evaluationDetail, selections map[string]string) []payload {
+	preview := make([]payload, 0, len(detail.IDs))
+	for _, id := range detail.IDs {
+		for _, option := range detail.Options[id] {
+			if option["option_id"] == selections[id] {
+				preview = append(preview, payload{"id": id, "option": option["label"], "score": option["score"]})
+				break
+			}
+		}
+	}
+	return preview
+}
+
+func (c *jwxtClient) submitEvaluation(detail *evaluationDetail, selections map[string]string) (string, error) {
+	form := url.Values{}
+	for key, values := range detail.Static {
+		for _, value := range values {
+			form.Add(key, value)
+		}
+	}
+	form.Set("issubmit", "1")
+	for _, id := range detail.IDs {
+		form.Add("pj06xh", id)
+		selected := selections[id]
+		if selected == "" {
+			return "", fmt.Errorf("evaluation indicator %s has no selection", id)
+		}
+		form.Set("pj0601id_"+id, selected)
+		for _, option := range detail.Options[id] {
+			optionID, _ := option["option_id"].(string)
+			score, _ := option["score"].(float64)
+			form.Set("pj0601fz_"+id+"_"+optionID, strconv.FormatFloat(score, 'f', -1, 64))
+		}
+	}
+	status, _, raw, err := c.text(http.MethodPost, jwxtBase+"/jsxsd/xspj/xspj_save.do", strings.NewReader(form.Encode()), map[string]string{"Content-Type": "application/x-www-form-urlencoded", "Referer": fmt.Sprint(detail.Summary["href"]), "Origin": jwxtBase})
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK {
+		return "", &jwxtError{message: fmt.Sprintf("evaluation submit HTTP %d", status), hint: "提交状态不确定，请登录教务系统官方页面核对；不会自动重复提交"}
+	}
+	message := stripTags(raw)
+	if containsAny(message, []string{"保存成功", "提交成功", "评价成功"}) {
+		return message, nil
+	}
+	return "", &jwxtError{message: "evaluation submit result was not confirmed", hint: "教务系统未返回成功提示，请登录官方页面核对状态"}
+}
+
 func (c *jwxtClient) evaluate(score int, courses []string, confirm bool) (payload, error) {
 	if score < 0 || score > 100 {
 		return nil, &jwxtError{message: "target score must be between 0 and 100"}
@@ -826,18 +927,56 @@ func (c *jwxtClient) evaluate(score int, courses []string, confirm bool) (payloa
 	}
 	items, _ := listing["items"].([]payload)
 	preview := make([]payload, 0)
+	type plan struct {
+		detail     *evaluationDetail
+		selections map[string]string
+	}
+	plans := make([]plan, 0)
 	for _, item := range items {
 		if len(courses) > 0 && !containsString(courses, fmt.Sprint(item["id"])) {
 			continue
 		}
-		preview = append(preview, payload{"id": item["id"], "course_name": item["course_name"], "teacher_name": item["teacher_name"], "target_score": score})
+		if status, _ := item["status"].(string); status != "未评" {
+			continue
+		}
+		detail, err := c.evaluationDetail(item)
+		if err != nil {
+			return nil, err
+		}
+		selections, total := evaluationPreset(detail, score)
+		preview = append(preview, payload{"id": item["id"], "course_name": item["course_name"], "teacher_name": item["teacher_name"], "target_score": score, "total_score": total, "indicators": evaluationPreview(detail, selections)})
+		plans = append(plans, plan{detail: detail, selections: selections})
 	}
 	result := success("jwxt", payload{"action": "evaluate", "target_score": score, "count": len(preview), "items": preview, "evaluation_preview": preview, "session_path": c.sessionPath})
+	if score == 100 {
+		result["warning"] = "目标 100 分可能触发教务系统的选项限制，建议使用 98 或更低分数"
+	}
 	if !confirm {
 		result["dry_run"], result["requires_confirmation"], result["hint"] = true, len(preview) > 0, "当前为预览模式；确认课程、教师和分数后，重新运行相同命令并追加 --confirm 才会提交"
 		return result, nil
 	}
-	return nil, &jwxtError{message: "confirmed evaluation submission is not available in this release", hint: "Go CLI 已保留确认安全门，待评教协议适配完成后再提交"}
+	results := make([]payload, 0, len(plans))
+	for index, current := range plans {
+		item := preview[index]
+		entry := payload{"id": item["id"], "course_name": item["course_name"], "teacher_name": item["teacher_name"], "total_score": item["total_score"]}
+		message, err := c.submitEvaluation(current.detail, current.selections)
+		if err != nil {
+			entry["ok"] = false
+			entry["error"] = err.Error()
+			results = append(results, entry)
+			for _, skipped := range preview[index+1:] {
+				results = append(results, payload{"id": skipped["id"], "course_name": skipped["course_name"], "teacher_name": skipped["teacher_name"], "ok": false, "skipped": true, "hint": "上一门课程提交结果异常，已停止后续提交；请先核对官方页面"})
+			}
+			result["ok"] = false
+			result["dry_run"], result["submitted"], result["failed"], result["skipped"], result["results"] = false, 0, 1, len(results)-1, results
+			result["hint"] = "部分课程提交失败；请根据 error 登录教务系统核对状态"
+			return result, nil
+		}
+		entry["ok"], entry["message"] = true, message
+		results = append(results, entry)
+	}
+	result["dry_run"], result["submitted"], result["failed"], result["skipped"], result["results"] = false, len(results), 0, 0, results
+	return result, nil
 }
 
 func containsString(values []string, target string) bool {
