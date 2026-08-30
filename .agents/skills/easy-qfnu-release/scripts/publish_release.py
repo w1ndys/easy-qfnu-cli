@@ -22,10 +22,9 @@ TARGETS = (
     ("darwin", "arm64", ""),
     ("windows", "amd64", ".exe"),
 )
-RELEASE_TIMEZONE = dt.timezone(dt.timedelta(hours=8), name="UTC+08:00")
 VERSION_RE = re.compile(r"^v(?:\d{4}\.\d{2}\.\d{2}\.\d{4}|\d+\.\d+\.\d+)$")
 MODULE_RE = re.compile(r"^module\s+(\S+)$", re.MULTILINE)
-COMMIT_RE = re.compile(r"^(?P<type>[a-z]+)(?:\([^)]*\))?(?:!)?:\s*(?P<subject>.+)$", re.IGNORECASE)
+COMMIT_RE = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?(?:!)?:\s*(?P<subject>.+)$", re.IGNORECASE)
 DATE_TAG_RE = re.compile(r"^v\d{4}\.\d{2}\.\d{2}\.\d{4}$")
 
 FEATURE_TYPES = {"feat", "feature"}
@@ -151,6 +150,9 @@ def classify_subject(subject: str) -> tuple[str, str]:
     if not match:
         return "maintenance", subject
     commit_type = match.group("type").lower()
+    scope = (match.group("scope") or "").lower()
+    if scope in {"release", "ci", "docs", "test", "chore", "build"}:
+        return "maintenance", match.group("subject").strip()
     if commit_type in FEATURE_TYPES:
         return "features", match.group("subject").strip()
     if commit_type in FIX_TYPES:
@@ -188,7 +190,7 @@ def release_notes(
     for raw_subject in subjects:
         category, subject = classify_subject(raw_subject)
         subject = public_subject(subject)
-        if not subject or subject in seen or raw_subject.lower().startswith("release("):
+        if not subject or subject in seen or raw_subject.lower().startswith("initial commit"):
             continue
         seen.add(subject)
         grouped[category].append(subject)
@@ -377,7 +379,7 @@ def publish(
 
 
 def parse_args() -> argparse.Namespace:
-    today = dt.datetime.now(RELEASE_TIMEZONE).strftime("v%Y.%m.%d.%H%M")
+    today = dt.datetime.now().astimezone().strftime("v%Y.%m.%d.%H%M")
     parser = argparse.ArgumentParser(description="Build and publish easy-qfnu date releases")
     parser.add_argument("--repo", type=Path, default=None, help="local CLI repository")
     parser.add_argument("--public-repo", default=None, help="public release repository")
