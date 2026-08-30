@@ -22,6 +22,7 @@ TARGETS = (
     ("darwin", "arm64", ""),
     ("windows", "amd64", ".exe"),
 )
+RELEASE_TIMEZONE = dt.timezone(dt.timedelta(hours=8), name="UTC+08:00")
 VERSION_RE = re.compile(r"^v(?:\d{4}\.\d{2}\.\d{2}\.\d{4}|\d+\.\d+\.\d+)$")
 MODULE_RE = re.compile(r"^module\s+(\S+)$", re.MULTILINE)
 COMMIT_RE = re.compile(r"^(?P<type>[a-z]+)(?:\([^)]*\))?(?:!)?:\s*(?P<subject>.+)$", re.IGNORECASE)
@@ -376,7 +377,7 @@ def publish(
 
 
 def parse_args() -> argparse.Namespace:
-    today = dt.datetime.now().astimezone().strftime("v%Y.%m.%d.%H%M")
+    today = dt.datetime.now(RELEASE_TIMEZONE).strftime("v%Y.%m.%d.%H%M")
     parser = argparse.ArgumentParser(description="Build and publish easy-qfnu date releases")
     parser.add_argument("--repo", type=Path, default=None, help="local CLI repository")
     parser.add_argument("--public-repo", default=None, help="public release repository")

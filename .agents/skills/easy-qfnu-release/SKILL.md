@@ -9,7 +9,7 @@ description: Build and publish easy-qfnu date-tagged release binaries and fixed-
 
 ## 约定
 
-- 版本标签使用 `vYYYY.MM.DD.HHmm`，默认采用当前本地时间，例如 `v2026.08.30.1430`；时区以执行发布命令的机器为准。
+- 版本标签使用 `vYYYY.MM.DD.HHmm`，默认采用东八区（`UTC+08:00`，Asia/Shanghai）当前时间，例如 `v2026.08.30.1430`；不依赖执行发布命令机器的本地时区。
 - 此 skill 随 CLI 源码仓库维护，源码仓库默认由 skill 脚本所在位置自动定位，可用 `EASY_QFNU_CLI_REPO` 或 `--repo` 覆盖。
 - 目标 Release 仓库默认为 `w1ndys/easy-qfnu-skill`，可用 `EASY_QFNU_PUBLIC_REPO` 或 `--public-repo` 覆盖。
 - 产物为 `easy-qfnu-linux-amd64`、`easy-qfnu-linux-arm64`、`easy-qfnu-darwin-amd64`、`easy-qfnu-darwin-arm64`、`easy-qfnu-windows-amd64.exe`、`checksums.txt` 和 `manifest.json`。
