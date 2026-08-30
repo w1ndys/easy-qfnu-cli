@@ -67,5 +67,9 @@ jobs:
           find dist -mindepth 2 -type f -exec mv {} dist/ \; 2>/dev/null || true
           find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true
           (cd dist && sha256sum qfnu-* > checksums.txt)
-          gh release create "${GITHUB_REF_NAME}" --repo "${RELEASE_REPO}" \
-            --title "qfnu ${GITHUB_REF_NAME}" --generate-notes dist/qfnu-* dist/checksums.txt
+          if gh release view "${GITHUB_REF_NAME}" --repo "${RELEASE_REPO}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" --repo "${RELEASE_REPO}" --clobber dist/qfnu-* dist/checksums.txt
+          else
+            gh release create "${GITHUB_REF_NAME}" --repo "${RELEASE_REPO}" \
+              --title "qfnu ${GITHUB_REF_NAME}" --generate-notes dist/qfnu-* dist/checksums.txt
+          fi
