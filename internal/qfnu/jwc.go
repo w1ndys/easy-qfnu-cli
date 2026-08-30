@@ -86,7 +86,7 @@ func resolveChannel(name string) (channel, error) {
 			return item, nil
 		}
 	}
-	return channel{}, &jwcError{message: "unknown JWC channel: " + name, hint: "run qfnu jwc channels to list supported channels"}
+	return channel{}, &jwcError{message: "unknown JWC channel: " + name, hint: "run easy-qfnu jwc channels to list supported channels"}
 }
 
 func parseListItems(raw, pageURL string) []listItem {
@@ -331,6 +331,6 @@ func runJWC(args []string, out io.Writer) int {
 }
 
 func usageJWC(w io.Writer) int {
-	fmt.Fprintln(w, "Usage: qfnu jwc <list|get|search|channels> [options]")
+	fmt.Fprintln(w, "Usage: easy-qfnu jwc <list|get|search|channels> [options]")
 	return 2
 }

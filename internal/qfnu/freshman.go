@@ -14,7 +14,7 @@ const freshmanAPI = "https://fq.easy-qfnu.top/api/questions"
 
 func runFreshman(args []string, out io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" {
-		fmt.Fprintln(out, "Usage: qfnu freshman search <keyword> [--page 1] [--page-size 20]")
+		fmt.Fprintln(out, "Usage: easy-qfnu freshman search <keyword> [--page 1] [--page-size 20]")
 		return 2
 	}
 	if args[0] != "search" {

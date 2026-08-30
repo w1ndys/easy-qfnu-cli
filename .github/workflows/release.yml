@@ -45,11 +45,11 @@ jobs:
           suffix=""
           if [ "${GOOS}" = "windows" ]; then suffix=".exe"; fi
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/w1ndys/easy-qfnu-cli/internal/qfnu.version=${GITHUB_REF_NAME}" \
-            -o "dist/qfnu-${GOOS}-${GOARCH}${suffix}" ./cmd/qfnu
+            -o "dist/easy-qfnu-${GOOS}-${GOARCH}${suffix}" ./cmd/qfnu
       - uses: actions/upload-artifact@v4
         with:
-          name: qfnu-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/qfnu-*
+          name: easy-qfnu-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/easy-qfnu-*
 
   publish:
     needs: build
@@ -57,7 +57,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: qfnu-*
+          pattern: easy-qfnu-*
           path: dist
           merge-multiple: true
       - name: Publish public release
@@ -67,10 +67,10 @@ jobs:
           set -eu
           find dist -mindepth 2 -type f -exec mv {} dist/ \; 2>/dev/null || true
           find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true
-          (cd dist && sha256sum qfnu-* > checksums.txt)
+          (cd dist && sha256sum easy-qfnu-* > checksums.txt)
           if gh release view "${GITHUB_REF_NAME}" --repo "${RELEASE_REPO}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" --repo "${RELEASE_REPO}" --clobber dist/qfnu-* dist/checksums.txt
+            gh release upload "${GITHUB_REF_NAME}" --repo "${RELEASE_REPO}" --clobber dist/easy-qfnu-* dist/checksums.txt
           else
             gh release create "${GITHUB_REF_NAME}" --repo "${RELEASE_REPO}" \
-              --title "qfnu ${GITHUB_REF_NAME}" --generate-notes dist/qfnu-* dist/checksums.txt
+              --title "easy-qfnu ${GITHUB_REF_NAME}" --generate-notes dist/easy-qfnu-* dist/checksums.txt
           fi

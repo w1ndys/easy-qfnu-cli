@@ -259,7 +259,7 @@ func (c *jwxtClient) captcha(out string) (payload, error) {
 	if err := c.persist(payload{"captcha_pending": true}); err != nil {
 		return nil, err
 	}
-	return success("jwxt", payload{"captcha_image_path": path, "session_path": c.sessionPath, "next": "qfnu jwxt login --username <学号> --password <密码> --captcha <识图结果>", "hint": "请用模型或用户读取验证码；验证码错误时重新运行 jwxt captcha"}), nil
+	return success("jwxt", payload{"captcha_image_path": path, "session_path": c.sessionPath, "next": "easy-qfnu jwxt login --username <学号> --password <密码> --captcha <识图结果>", "hint": "请用模型或用户读取验证码；验证码错误时重新运行 jwxt captcha"}), nil
 }
 
 func (c *jwxtClient) recognize(image []byte) (string, error) {
@@ -305,11 +305,11 @@ func (c *jwxtClient) login(username, password, captcha string, saveCredentials b
 		}
 		captcha, err = c.recognize(image)
 		if err != nil {
-			return nil, &jwxtError{message: err.Error(), hint: "部署独立 ddddocr 服务，或运行 jwxt captcha 后手动传入验证码"}
+			return nil, &jwxtError{message: err.Error(), hint: "部署独立 ddddocr 服务，或运行 easy-qfnu jwxt captcha 后手动传入验证码"}
 		}
 	}
 	if len(c.jar.Cookies(mustURL(jwxtBase))) == 0 {
-		return nil, &jwxtError{message: "no active captcha session", hint: "先运行 jwxt captcha，再用 --captcha 提交识别结果"}
+		return nil, &jwxtError{message: "no active captcha session", hint: "先运行 easy-qfnu jwxt captcha，再用 --captcha 提交识别结果"}
 	}
 	status, _, sess, err := c.text(http.MethodPost, sessURL, strings.NewReader(""), map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
 	if err != nil || status >= 400 {
@@ -329,7 +329,7 @@ func (c *jwxtClient) login(username, password, captcha string, saveCredentials b
 		return nil, &jwxtError{message: "username or password is wrong", hint: "核对学号和学校服务大厅密码，不要重复提交错误密码"}
 	}
 	if containsAny(loginBody, []string{"验证码错误", "验证码不正确"}) {
-		return nil, &jwxtError{message: "captcha rejected by 教务系统", hint: "重新运行 jwxt captcha 获取新验证码"}
+		return nil, &jwxtError{message: "captcha rejected by 教务系统", hint: "重新运行 easy-qfnu jwxt captcha 获取新验证码"}
 	}
 	status, _, main, err := c.text(http.MethodGet, mainURL, nil, nil)
 	if err != nil {
@@ -493,7 +493,7 @@ func clearCredentialsFile() bool { return os.Remove(defaultCredentialsPath()) ==
 
 func runJWXT(args []string, out io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" {
-		fmt.Fprintln(out, "Usage: qfnu jwxt <captcha|login|grades|schedule|evaluations|evaluate|status|logout|forget-credentials>")
+		fmt.Fprintln(out, "Usage: easy-qfnu jwxt <captcha|login|grades|schedule|evaluations|evaluate|status|logout|forget-credentials>")
 		return 2
 	}
 	action := args[0]
@@ -616,7 +616,7 @@ func runJWXT(args []string, out io.Writer) int {
 
 func (c *jwxtClient) status() (payload, error) {
 	if len(c.jar.Cookies(mustURL(jwxtBase))) == 0 {
-		return success("jwxt", payload{"logged_in": false, "session_path": c.sessionPath, "hint": "run qfnu jwxt login first"}), nil
+		return success("jwxt", payload{"logged_in": false, "session_path": c.sessionPath, "hint": "run easy-qfnu jwxt login first"}), nil
 	}
 	status, finalURL, main, err := c.text(http.MethodGet, mainURL, nil, nil)
 	if err != nil {
@@ -632,9 +632,9 @@ func (c *jwxtClient) status() (payload, error) {
 				}
 			}
 		}
-		hint := "run qfnu jwxt login again"
+		hint := "run easy-qfnu jwxt login again"
 		if c.ocrURL == "" && c.meta.Username != "" {
-			hint = "会话已过期且未配置 QFNU_OCR_URL；请运行 jwxt captcha，再用 jwxt login --captcha 提交识别结果"
+			hint = "会话已过期且未配置 QFNU_OCR_URL；请运行 easy-qfnu jwxt captcha，再用 easy-qfnu jwxt login --captcha 提交识别结果"
 		}
 		return success("jwxt", payload{"logged_in": false, "session_path": c.sessionPath, "hint": hint}), nil
 	}
@@ -660,7 +660,7 @@ func (c *jwxtClient) grades(semester string) (payload, error) {
 		return nil, err
 	}
 	if status != http.StatusOK || containsAny(raw, []string{"请输入账号", "请输入密码", "请输入验证码"}) {
-		return nil, &jwxtError{message: "grades page requires login", hint: "run qfnu jwxt status or login again"}
+		return nil, &jwxtError{message: "grades page requires login", hint: "run easy-qfnu jwxt status or login again"}
 	}
 	items := parseGrades(raw, semester)
 	return success("jwxt", payload{"semester": semester, "count": len(items), "items": items, "grades": items, "url": finalURL, "session_path": c.sessionPath}), nil
@@ -682,7 +682,7 @@ func (c *jwxtClient) schedule(semester, week, mode string) (payload, error) {
 		return nil, err
 	}
 	if status != http.StatusOK || containsAny(raw, []string{"请输入账号", "请输入密码", "请输入验证码"}) {
-		return nil, &jwxtError{message: "schedule page requires login", hint: "run qfnu jwxt status or login again"}
+		return nil, &jwxtError{message: "schedule page requires login", hint: "run easy-qfnu jwxt status or login again"}
 	}
 	items := parseSchedule(raw)
 	return success("jwxt", payload{"semester": semester, "week": week, "kbjcmsid": mode, "count": len(items), "items": items, "schedule": items, "url": finalURL, "session_path": c.sessionPath}), nil
@@ -757,7 +757,7 @@ func (c *jwxtClient) evaluations() (payload, error) {
 		return nil, err
 	}
 	if status != http.StatusOK || containsAny(raw, []string{"请输入账号", "请输入密码", "请输入验证码"}) {
-		return nil, &jwxtError{message: "evaluation page requires login", hint: "run qfnu jwxt status or login again"}
+		return nil, &jwxtError{message: "evaluation page requires login", hint: "run easy-qfnu jwxt status or login again"}
 	}
 	listURL := evaluationListURL(raw)
 	if listURL == "" {
