@@ -17,6 +17,10 @@ go run ./cmd/easy-qfnu --help
 
 评教提交暂时只保留预览安全门；在完成 Go 版评教协议适配前，带 `--confirm` 的命令会明确返回不可用错误，不会发送 POST。
 
+## 匿名使用统计
+
+实际执行 `easy-qfnu jwxt login` 并成功后，CLI 会向 `https://hub.easy-qfnu.top/v1/telemetry/events` 上报匿名登录事件。字段仅包含事件时间、功能名、成功状态、CLI 版本、操作系统和 CPU 架构；不包含学号、姓名、密码、验证码、Cookie、IP、设备 ID 或联系方式。恢复已有会话不触发登录事件，统计服务不可用也不影响登录结果。
+
 ## 发布 skill
 
 发布 skill 位于 `.agents/skills/easy-qfnu-release/`，从本仓库根目录执行默认 dry-run：

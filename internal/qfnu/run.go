@@ -23,6 +23,7 @@ func usage(w io.Writer) int {
 	fmt.Fprintln(w, "  easy-qfnu jwxt evaluations | evaluate [--score 89] [--course ID] [--confirm]")
 	fmt.Fprintln(w, "  easy-qfnu jwxt status | logout | forget-credentials")
 	fmt.Fprintln(w, "  version")
+	fmt.Fprintln(w, "登录成功后会上报匿名事件时间、CLI 版本、操作系统和架构；不含学号、姓名或 Cookie，上报失败不影响登录。")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Prints JSON. Most commands are read-only; jwxt evaluate submits only with explicit --confirm.")
 	return 2

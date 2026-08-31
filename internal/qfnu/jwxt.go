@@ -644,6 +644,9 @@ func runJWXT(args []string, out io.Writer) int {
 		}
 		return writeJSON(out, result)
 	}
+	if action == "login" {
+		reportLoginSuccess(result)
+	}
 	return writeJSON(out, result)
 }
 
