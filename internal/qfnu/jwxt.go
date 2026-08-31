@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -325,6 +326,9 @@ func (c *jwxtClient) login(username, password, captcha string, saveCredentials b
 	if err != nil {
 		return nil, err
 	}
+	if message := parseLoginMessage(loginBody); message != "" {
+		return nil, &jwxtError{message: message, hint: loginFailureHint(message)}
+	}
 	if containsAny(loginBody, []string{"密码错误", "用户名或密码错误", "用户名密码错误", "您提供的用户名或者密码有误"}) {
 		return nil, &jwxtError{message: "username or password is wrong", hint: "核对学号和学校服务大厅密码，不要重复提交错误密码"}
 	}
@@ -361,6 +365,35 @@ func (c *jwxtClient) login(username, password, captcha string, saveCredentials b
 		result["credentials_saved"] = false
 	}
 	return result, nil
+}
+
+func parseLoginMessage(raw string) string {
+	startRE := regexp.MustCompile(`(?is)<([a-z][a-z0-9]*)\b[^>]*\bid\s*=\s*["']showMsg["'][^>]*>`)
+	match := startRE.FindStringSubmatchIndex(raw)
+	if len(match) < 4 {
+		return ""
+	}
+	tag := raw[match[2]:match[3]]
+	endRE := regexp.MustCompile(`(?is)</\s*` + regexp.QuoteMeta(tag) + `\s*>`)
+	end := endRE.FindStringIndex(raw[match[1]:])
+	if end == nil {
+		return ""
+	}
+	message := html.UnescapeString(stripTags(raw[match[1] : match[1]+end[0]]))
+	return strings.Join(strings.Fields(message), " ")
+}
+
+func loginFailureHint(message string) string {
+	switch {
+	case containsAny(message, []string{"验证码错误", "验证码不正确"}):
+		return "重新运行 easy-qfnu jwxt captcha 获取新验证码"
+	case containsAny(message, []string{"密码错误", "用户名或密码错误", "用户名密码错误", "用户名或者密码有误"}):
+		return "核对学号和学校服务大厅密码，不要重复提交错误密码"
+	case containsAny(message, []string{"其他地方登录", "别处登录", "异地登录"}):
+		return "账号已在其他地方登录，请先退出已有会话后再重试"
+	default:
+		return "请根据教务系统返回的错误核对登录信息后重试"
+	}
 }
 
 func containsAny(text string, markers []string) bool {
