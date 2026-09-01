@@ -526,10 +526,16 @@ func clearCredentialsFile() bool { return os.Remove(defaultCredentialsPath()) ==
 
 func runJWXT(args []string, out io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" {
-		fmt.Fprintln(out, "Usage: easy-qfnu jwxt <captcha|login|grades|schedule|evaluations|evaluate|status|logout|forget-credentials>")
+		fmt.Fprintln(out, "Usage: easy-qfnu jwxt <captcha|login|grades|schedule|evaluations|evaluate|status|logout|forget-credentials|relay>")
 		return 2
 	}
 	action := args[0]
+	if action == "relay" {
+		if len(args) != 2 {
+			return writeJSON(out, failure("jwxt", "relay requires one fixed action", "支持 feedback、recommendation、rank"))
+		}
+		return runJWXTRelay(args[1], newJWXTClient("", ""), os.Stdin, out)
+	}
 	var ocrURL, sessionPath, username, password, captcha, output, semester, week, mode string
 	var save, saveSet, forget, confirm bool
 	targetScore := 89

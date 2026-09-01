@@ -22,10 +22,10 @@ TARGETS = (
     ("darwin", "arm64", ""),
     ("windows", "amd64", ".exe"),
 )
-VERSION_RE = re.compile(r"^v(?:\d{4}\.\d{2}\.\d{2}\.\d{4}|\d+\.\d+\.\d+)$")
+VERSION_RE = re.compile(r"^v(?:\d{4}\.\d{2}\.\d{2}\.\d{2}|\d+\.\d+\.\d+)$")
 MODULE_RE = re.compile(r"^module\s+(\S+)$", re.MULTILINE)
 COMMIT_RE = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?(?:!)?:\s*(?P<subject>.+)$", re.IGNORECASE)
-DATE_TAG_RE = re.compile(r"^v\d{4}\.\d{2}\.\d{2}\.\d{4}$")
+DATE_TAG_RE = re.compile(r"^v\d{4}\.\d{2}\.\d{2}\.(?:\d{2}|\d{4})$")
 
 FEATURE_TYPES = {"feat", "feature"}
 FIX_TYPES = {"fix", "bugfix", "perf"}
@@ -383,7 +383,7 @@ def publish(
 
 
 def parse_args() -> argparse.Namespace:
-    today = dt.datetime.now().astimezone().strftime("v%Y.%m.%d.%H%M")
+    today = dt.datetime.now().astimezone().strftime("v%Y.%m.%d.%H")
     parser = argparse.ArgumentParser(description="Build and publish easy-qfnu date releases")
     parser.add_argument("--repo", type=Path, default=None, help="local CLI repository")
     parser.add_argument("--public-repo", default=None, help="public release repository")
@@ -391,7 +391,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skill-version", default=None, help="skill version (default: same as --version)")
     parser.add_argument("--notes-file", type=Path, default=None, help="可选的自定义 Release 文案文件")
     parser.add_argument("--publish", action="store_true", help="create/push tag and upload release")
-    parser.add_argument("--replace", action="store_true", help="replace an existing same-day tag/release")
+    parser.add_argument("--replace", action="store_true", help="replace an existing same-hour tag/release")
     parser.add_argument("--public-only", action="store_true", help="only update the public Release; do not create or push a source tag")
     return parser.parse_args()
 
@@ -399,13 +399,13 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if not VERSION_RE.fullmatch(args.version):
-        raise ReleaseError("版本必须使用 vYYYY.MM.DD.HHmm 或 vX.Y.Z 格式，例如 v2026.08.30.1430")
+        raise ReleaseError("版本必须使用 vYYYY.MM.DD.HH 或 vX.Y.Z 格式，例如 v2026.08.30.14")
     default_repo = default_cli_repo()
     repo = (args.repo or Path(os.environ.get("EASY_QFNU_CLI_REPO", default_repo))).expanduser().resolve()
     public_repo = args.public_repo or os.environ.get("EASY_QFNU_PUBLIC_REPO", "w1ndys/easy-qfnu-skill")
     skill_version = args.skill_version or args.version
     if not VERSION_RE.fullmatch(skill_version):
-        raise ReleaseError("skill 版本必须使用 vYYYY.MM.DD.HHmm 或 vX.Y.Z 格式")
+        raise ReleaseError("skill 版本必须使用 vYYYY.MM.DD.HH 或 vX.Y.Z 格式")
     if args.public_only and not args.publish:
         raise ReleaseError("--public-only 只能与 --publish 一起使用")
     module = validate_repo(repo)
