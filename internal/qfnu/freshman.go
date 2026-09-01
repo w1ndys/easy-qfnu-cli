@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const freshmanAPI = "https://fq.easy-qfnu.top/api/questions"
+const freshmanAPI = "https://freshman-exam.easy-qfnu.top/api/questions"
 
 func runFreshman(args []string, out io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" {
