@@ -17,9 +17,17 @@ description: Build and publish easy-qfnu date-tagged release binaries and fixed-
 - Release 标题固定为版本号本身，例如 `v2026.08.30.17`，不添加产品名或括号中的版本信息。
 - Release 正文固定包含“发布说明、功能更新、修复问题、改进与维护、安装、版本信息”六个章节。脚本会读取上一个公开 Release 到当前 HEAD 的提交，并按 Conventional Commit 类型生成中文用户更新点；发布流程、CI 和测试提交会过滤掉，避免把内部实现细节展示给用户。
 
+## 构建前置条件
+
+- 发布构建固定使用 `garble v0.17.0` 和独立的 `go1.26.8` 工具链。
+- Go 自动下载到 `GOMODCACHE` 的工具链不能用于 garble 的链接器补丁；如果默认命令未找到独立工具链，可设置 `EASY_QFNU_GO` 指向独立的 `go` 可执行文件。
+- 发布脚本把 garble 安装到本次构建的临时目录，不写入用户的 `GOPATH/bin`；这只影响构建工具，不改变最终 CLI 的安装位置。
+- 这是提高逆向成本的混淆，不是加密；密钥和必须保密的服务端逻辑仍必须留在服务端。
+- `-tiny` 会减少 panic 和崩溃堆栈信息；问题排查使用未混淆的开发构建。
+
 ## 发布流程
 
-1. 在 CLI 仓库根目录先执行默认 dry-run。脚本会检查本地仓库是否干净、验证 `gh` 登录、运行 `go test ./...`，并在临时目录交叉构建五个平台；此阶段不创建标签、不推送代码、不上传 Release。
+1. 在 CLI 仓库根目录先执行默认 dry-run。脚本会检查本地仓库是否干净、验证 `gh` 登录、运行 `go test ./...`，并在临时目录使用 garble 混淆交叉构建五个平台；此阶段不创建标签、不推送代码、不上传 Release。
 
    ```bash
    python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py
@@ -51,6 +59,6 @@ description: Build and publish easy-qfnu date-tagged release binaries and fixed-
      --version v2026.08.30.16 --publish --replace --public-only
    ```
 
-脚本使用本机 `gh` 的登录身份完成 GitHub 操作，不读取或打印 Token，也不依赖 GitHub Actions。发布完成后会再次读取 Release 资产，确认五个平台文件、`checksums.txt` 和 `manifest.json` 都存在，并确认标题与正文已写入。
+脚本使用本机 `gh` 的登录身份完成 GitHub 操作，不读取或打印 Token，也不依赖 GitHub Actions。每次构建会在临时目录安装固定版本的 garble 并生成混淆二进制；发布完成后会再次读取 Release 资产，确认五个平台文件、`checksums.txt` 和 `manifest.json` 都存在，并确认标题与正文已写入。
 
 不要在没有用户明确确认的情况下运行 `--publish` 或 `--replace`。如果源码仓库有未提交修改、版本格式不合法、测试失败、交叉编译失败或 GitHub 权限不足，应停止并报告具体错误。重新发布历史版本时，必须明确指定对应的 `--version`；如果只操作公开仓库，必须同时使用 `--public-only`，避免移动源码仓库的历史标签。

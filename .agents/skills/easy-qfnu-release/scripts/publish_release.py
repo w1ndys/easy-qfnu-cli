@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,11 +23,15 @@ TARGETS = (
     ("darwin", "arm64", ""),
     ("windows", "amd64", ".exe"),
 )
-VERSION_RE = re.compile(r"^v\d{4}\.\d{2}\.\d{2}\.\d{2}$")
-MODULE_RE = re.compile(r"^module\s+(\S+)$", re.MULTILINE)
-COMMIT_RE = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?(?:!)?:\s*(?P<subject>.+)$", re.IGNORECASE)
+GO_TOOLCHAIN = "go1.26.8"
+MIN_GO_VERSION = (1, 26, 2)
+GARBLE_VERSION = "v0.17.0"
+GO_VERSION_RE = re.compile(r"(?<![A-Za-z])go(?P<version>[0-9]+(?:[.][0-9]+){1,2})(?![0-9])")
+VERSION_RE = re.compile(r"^v[0-9]{4}[.][0-9]{2}[.][0-9]{2}[.][0-9]{2}$")
+MODULE_RE = re.compile(r"^module[ \t]+([^ \t\r\n]+)$", re.MULTILINE)
+COMMIT_RE = re.compile(r"^(?P<type>[a-z]+)(?:[(](?P<scope>[^)]*)[)])?(?:!)?:[ \t]*(?P<subject>.+)$", re.IGNORECASE)
 # Keep recognizing legacy HHmm tags while migrating historical Releases.
-DATE_TAG_RE = re.compile(r"^v\d{4}\.\d{2}\.\d{2}\.(?:\d{2}|\d{4})$")
+DATE_TAG_RE = re.compile(r"^v[0-9]{4}[.][0-9]{2}[.][0-9]{2}[.](?:[0-9]{2}|[0-9]{4})$")
 
 FEATURE_TYPES = {"feat", "feature"}
 FIX_TYPES = {"fix", "bugfix", "perf"}
@@ -44,8 +49,12 @@ def default_cli_repo() -> Path:
     return Path.cwd()
 
 
-def command_text(command: list[str], cwd: Path | None = None) -> str:
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True)
+def command_text(
+    command: list[str],
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> str:
+    result = subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True)
     if result.returncode != 0:
         details = (result.stderr or result.stdout).strip()
         raise ReleaseError(f"命令失败: {' '.join(command)}\n{details}")
@@ -56,6 +65,115 @@ def command(command: list[str], cwd: Path | None = None, env: dict[str, str] | N
     result = subprocess.run(command, cwd=cwd, env=env)
     if result.returncode != 0:
         raise ReleaseError(f"命令失败（退出码 {result.returncode}）: {' '.join(command)}")
+
+
+def parse_go_version(output: str) -> tuple[int, ...] | None:
+    match = GO_VERSION_RE.search(output)
+    if not match:
+        return None
+    return tuple(int(part) for part in match.group("version").split("."))
+
+
+def go_candidates() -> list[str]:
+    configured = os.environ.get("EASY_QFNU_GO")
+    if configured:
+        return [configured]
+
+    candidates = [GO_TOOLCHAIN]
+    go_path = shutil.which("go")
+    if go_path:
+        result = subprocess.run(
+            [go_path, "env", "GOPATH"],
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            for root in result.stdout.strip().split(os.pathsep):
+                if root:
+                    candidates.append(str(Path(root) / "bin" / GO_TOOLCHAIN))
+    go_executable = "go.exe" if os.name == "nt" else "go"
+    candidates.append(str(Path.home() / "sdk" / GO_TOOLCHAIN / "bin" / go_executable))
+    candidates.append("go")
+    return list(dict.fromkeys(candidates))
+
+
+def resolve_go() -> tuple[str, tuple[int, ...]]:
+    errors = []
+    for candidate in go_candidates():
+        executable = shutil.which(candidate)
+        if not executable:
+            continue
+        result = subprocess.run([executable, "version"], text=True, capture_output=True)
+        if result.returncode != 0:
+            errors.append(f"{candidate}: 无法读取版本")
+            continue
+        version = parse_go_version(result.stdout)
+        if version is None:
+            errors.append(f"{candidate}: 版本格式无法识别")
+            continue
+        if version[:2] != (1, 26) or version < MIN_GO_VERSION:
+            errors.append(f"{candidate}: 需要 Go 1.26.2+，实际为 go{'.'.join(map(str, version))}")
+            continue
+
+        goroot_result = subprocess.run([executable, "env", "GOROOT"], text=True, capture_output=True)
+        gomodcache_result = subprocess.run([executable, "env", "GOMODCACHE"], text=True, capture_output=True)
+        if goroot_result.returncode != 0 or gomodcache_result.returncode != 0:
+            errors.append(f"{candidate}: 无法读取 GOROOT/GOMODCACHE")
+            continue
+        goroot = goroot_result.stdout.strip()
+        gomodcache = gomodcache_result.stdout.strip()
+        if goroot and gomodcache:
+            try:
+                Path(goroot).resolve().relative_to(Path(gomodcache).resolve())
+            except ValueError:
+                pass
+            else:
+                errors.append(f"{candidate}: GOROOT 位于 GOMODCACHE，不能供 garble 修改链接器")
+                continue
+        return executable, version
+
+    details = f"（{'; '.join(errors)}）" if errors else ""
+    raise ReleaseError(
+        f"发布构建需要独立的 {GO_TOOLCHAIN} 工具链；"
+        "Go 自动下载到 GOMODCACHE 的工具链不能供 garble 修改链接器。"
+        f"请安装 {GO_TOOLCHAIN}，或设置 EASY_QFNU_GO 指向独立 go 可执行文件。{details}"
+    )
+
+
+def toolchain_env(go_command: str) -> dict[str, str]:
+    env = os.environ.copy()
+    env["GOTOOLCHAIN"] = "local"
+    env.pop("GOROOT", None)
+    goroot = command_text([go_command, "env", "GOROOT"], env=env)
+    env["PATH"] = str(Path(goroot) / "bin") + os.pathsep + env.get("PATH", "")
+    return env
+
+
+def install_garble(
+    go_command: str,
+    repo: Path,
+    tool_dir: Path,
+    base_env: dict[str, str],
+) -> Path:
+    tool_dir.mkdir(parents=True, exist_ok=True)
+    env = base_env.copy()
+    env.update({"GOBIN": str(tool_dir), "CGO_ENABLED": "0"})
+    for variable in (
+        "GOOS",
+        "GOARCH",
+        "GOARM",
+        "GOAMD64",
+        "GOARM64",
+        "GO386",
+        "GOMIPS",
+        "GOMIPS64",
+    ):
+        env.pop(variable, None)
+    command([go_command, "install", f"mvdan.cc/garble@{GARBLE_VERSION}"], cwd=repo, env=env)
+    executable = tool_dir / ("garble.exe" if os.name == "nt" else "garble")
+    if not executable.is_file():
+        raise ReleaseError(f"garble {GARBLE_VERSION} 安装后未找到可执行文件")
+    return executable
 
 
 def release_exists(public_repo: str, version: str) -> bool:
@@ -218,7 +336,7 @@ def release_notes(
         "",
         "## 📦 安装",
         "- 下载本页面中与你的操作系统和 CPU 架构对应的 `easy-qfnu` 二进制。",
-        "- 使用 `checksums.txt` 校验文件完整性，再将二进制加入 PATH。",
+        "- 使用 `checksums.txt` 校验文件完整性，再通过 skill 目录中的安装脚本放入 `bin/`；无需加入 PATH。",
         "",
         "## 🔐 版本信息",
         "| 项目 | 版本 |",
@@ -266,17 +384,29 @@ def validate_repo(repo: Path) -> str:
     return parse_module(repo)
 
 
-def build(repo: Path, module: str, version: str, output_dir: Path) -> list[Path]:
-    command(["go", "test", "./..."], cwd=repo)
+def build(
+    repo: Path,
+    module: str,
+    version: str,
+    output_dir: Path,
+    go_command: str,
+) -> list[Path]:
+    env = toolchain_env(go_command)
+    env["GARBLE_CACHE"] = str(output_dir / ".garble-cache")
+    command([go_command, "test", "./..."], cwd=repo, env=env)
+    garble = install_garble(go_command, repo, output_dir / ".release-tools", env)
     binaries: list[Path] = []
     for goos, goarch, suffix in TARGETS:
         name = f"easy-qfnu-{goos}-{goarch}{suffix}"
         output = output_dir / name
-        env = os.environ.copy()
-        env.update({"GOOS": goos, "GOARCH": goarch, "CGO_ENABLED": "0"})
+        target_env = env.copy()
+        target_env.update({"GOOS": goos, "GOARCH": goarch, "CGO_ENABLED": "0"})
         command(
             [
-                "go",
+                str(garble),
+                "-seed=random",
+                "-tiny",
+                "-literals",
                 "build",
                 "-trimpath",
                 f"-ldflags=-s -w -X {module}/internal/qfnu.version={version}",
@@ -285,7 +415,7 @@ def build(repo: Path, module: str, version: str, output_dir: Path) -> list[Path]
                 "./cmd/easy-qfnu",
             ],
             cwd=repo,
-            env=env,
+            env=target_env,
         )
         binaries.append(output)
     checksums = output_dir / "checksums.txt"
@@ -404,6 +534,7 @@ def main() -> int:
     if args.public_only and not args.publish:
         raise ReleaseError("--public-only 只能与 --publish 一起使用")
     module = validate_repo(repo)
+    go_command, go_version = resolve_go()
     command(["gh", "auth", "status"])
     if args.replace and not args.publish:
         raise ReleaseError("--replace 只能与 --publish 一起使用")
@@ -423,11 +554,14 @@ def main() -> int:
     print(f"目标 Release: {public_repo}")
     print(f"上一个 Release: {previous_tag or '无（首次日期版本）'}")
     print(f"Release/CLI/skill 统一版本: {args.version}")
+    print(f"构建工具链: go{'.'.join(map(str, go_version))} ({go_command})")
+    print(f"混淆工具: garble {GARBLE_VERSION}")
     print("Release 文案:")
     print(notes, end="")
     print("模式: publish" if args.publish else "模式: dry-run")
+
     with tempfile.TemporaryDirectory(prefix="easy-qfnu-release-") as temp:
-        assets = build(repo, module, args.version, Path(temp))
+        assets = build(repo, module, args.version, Path(temp), go_command)
         print("构建产物:")
         for asset in assets:
             print(f"  {asset.name} ({asset.stat().st_size} bytes)")
@@ -437,6 +571,7 @@ def main() -> int:
         else:
             print("dry-run 完成；获得用户明确确认后再加 --publish。")
     return 0
+
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
