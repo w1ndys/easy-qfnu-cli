@@ -19,8 +19,21 @@ go run ./cmd/easy-qfnu --help
 
 ## 匿名使用统计
 
-实际执行 `easy-qfnu jwxt login` 并成功后，CLI 会向 `https://hub.easy-qfnu.top/v1/telemetry/events` 上报匿名登录事件。字段仅包含事件时间、功能名、成功状态、CLI 版本、操作系统和 CPU 架构；不包含学号、姓名、密码、验证码、Cookie、IP、设备 ID 或联系方式。恢复已有会话不触发登录事件，统计服务不可用也不影响登录结果。
+实际执行 `easy-qfnu jwxt login` 并成功后，或执行公开预选课查询后，CLI 会向 `https://hub.easy-qfnu.top/v1/telemetry/events` 上报匿名功能事件。字段仅包含事件时间、功能名、成功状态、CLI 版本、操作系统和 CPU 架构；不包含学号、姓名、查询关键词、课程数据、密码、验证码、Cookie、IP、设备 ID 或联系方式。统计服务不可用也不影响业务结果。
 
+
+## 公开预选课查询
+
+预选课目录查询不需要 JWXT 登录，CLI 通过固定的 `precourse.easy-qfnu.top` 只读服务查询排课快照：
+
+```bash
+easy-qfnu precourse search "音乐鉴赏"
+easy-qfnu precourse search --teacher-name "王" --campus "日照"
+easy-qfnu precourse meta
+easy-qfnu precourse popular --field teacherName
+```
+
+查询至少需要一个非空条件，最多返回 500 条；结果来自定时同步快照，不等同于实时选课结果，也不会提交选课或预选课操作。
 ## 安全中继
 
 需要提交反馈或使用云端服务时，CLI 只允许固定操作映射到受信任 HTTPS 服务，不接受自定义 URL、域名、路径或 HTTP 方法。请求正文从标准输入读取，Cookie 只从本地 JWXT 会话读取并通过请求头发送，不出现在命令参数、日志或响应中。

@@ -15,7 +15,8 @@ func usage(w io.Writer) int {
 	fmt.Fprintln(w, "  easy-qfnu jwc get <url-or-info-path>")
 	fmt.Fprintln(w, "  easy-qfnu jwc search <keyword> [--page 1] [--limit 10]")
 	fmt.Fprintln(w, "  easy-qfnu jwc channels")
-	fmt.Fprintln(w, "  easy-qfnu freshman search <keyword> [--page 1] [--page-size 20]")
+	fmt.Fprintln(w, "  easy-qfnu precourse search [keyword] [--course-code value] [--campus value]")
+	fmt.Fprintln(w, "  easy-qfnu precourse meta | popular --field <teacherName|courseName|college>")
 	fmt.Fprintln(w, "  easy-qfnu jwxt captcha [--out 图片路径]")
 	fmt.Fprintln(w, "  easy-qfnu jwxt login [--username 学号] [--password 密码] [--captcha 识图结果]")
 	fmt.Fprintln(w, "  easy-qfnu jwxt grades [--semester 学年学期]")
@@ -50,6 +51,8 @@ func Run(args []string, out, errOut io.Writer) int {
 		code = runJWC(args[1:], out)
 	case "freshman":
 		code = runFreshman(args[1:], out)
+	case "precourse", "precourses":
+		code = runPrecourse(args[1:], out)
 	case "jwxt":
 		code = runJWXT(args[1:], out)
 	default:
