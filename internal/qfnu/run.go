@@ -33,7 +33,7 @@ func usage(w io.Writer) int {
 // Run dispatches the stable easy-qfnu command contract. It deliberately avoids a
 // third-party parser so the released binary has no runtime dependencies.
 func Run(args []string, out, errOut io.Writer) int {
-	if code := checkUpdates(out, errOut); code != 0 {
+	if code := checkUpdates(out); code != 0 {
 		return code
 	}
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {

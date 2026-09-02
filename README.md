@@ -13,7 +13,7 @@ go run ./cmd/easy-qfnu --help
 
 发布标签使用执行发布命令机器本地时区的日期时间格式 `vYYYY.MM.DD.HH`，例如 `v2026.08.30.14`。同一小时如需重新发布，覆盖同名 Release 资产即可。发布通过仓库内的 `easy-qfnu-release` skill 和本机 `gh` 完成，不依赖 GitHub Actions 或仓库 Secret。
 
-正式版本启动时会强制读取公开 Release 的 `manifest.json`，同时检查 CLI 和 `easy-qfnu-skill/VERSION`。发现任一版本过期或清单不可用时，CLI 返回 `update_required: true` 并停止业务命令；更新 skill 后需要重新读取 `SKILL.md` 再重试。
+正式版本启动时会强制读取公开 Release 的 `manifest.json`，以 Release 标签作为 Release、CLI 和 skill 的统一版本来源。发现 CLI 版本过期或清单不可用时，CLI 返回 `update_required: true` 并停止业务命令；更新 skill 后需要重新读取 `SKILL.md` 再重试。
 
 评教提交暂时只保留预览安全门；在完成 Go 版评教协议适配前，带 `--confirm` 的命令会明确返回不可用错误，不会发送 POST。
 

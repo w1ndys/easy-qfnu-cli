@@ -13,8 +13,7 @@ description: Build and publish easy-qfnu date-tagged release binaries and fixed-
 - 此 skill 随 CLI 源码仓库维护，源码仓库默认由 skill 脚本所在位置自动定位，可用 `EASY_QFNU_CLI_REPO` 或 `--repo` 覆盖。
 - 目标 Release 仓库默认为 `w1ndys/easy-qfnu-skill`，可用 `EASY_QFNU_PUBLIC_REPO` 或 `--public-repo` 覆盖。
 - 产物为 `easy-qfnu-linux-amd64`、`easy-qfnu-linux-arm64`、`easy-qfnu-darwin-amd64`、`easy-qfnu-darwin-arm64`、`easy-qfnu-windows-amd64.exe`、`checksums.txt` 和 `manifest.json`。
-- `manifest.json` 同时记录 `release_version`、`cli_version`、`skill_version` 及每个平台产物的 SHA-256；CLI 启动时依赖它执行强制版本检查。
-- `skill_version` 必须与公开 skill 仓库 `easy-qfnu-skill/VERSION` 的内容一致；skill 内容更新时先更新该文件并提交，再发布对应 Release。
+- `manifest.json` 同时记录 `release_version`、`cli_version`、`skill_version` 及每个平台产物的 SHA-256；三者均由 Release 标签自动生成，Release 标签是唯一版本来源，CLI 只依据 Release 清单检查自身版本。
 - Release 标题固定为版本号本身，例如 `v2026.08.30.17`，不添加产品名或括号中的版本信息。
 - Release 正文固定包含“发布说明、功能更新、修复问题、改进与维护、安装、版本信息”六个章节。脚本会读取上一个公开 Release 到当前 HEAD 的提交，并按 Conventional Commit 类型生成中文用户更新点；发布流程、CI 和测试提交会过滤掉，避免把内部实现细节展示给用户。
 
@@ -49,9 +48,9 @@ description: Build and publish easy-qfnu date-tagged release binaries and fixed-
 
    ```bash
    python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py \
-     --version v2026.08.30.16 --skill-version v2026.08.30.16 --publish --replace --public-only
+     --version v2026.08.30.16 --publish --replace --public-only
    ```
 
 脚本使用本机 `gh` 的登录身份完成 GitHub 操作，不读取或打印 Token，也不依赖 GitHub Actions。发布完成后会再次读取 Release 资产，确认五个平台文件、`checksums.txt` 和 `manifest.json` 都存在，并确认标题与正文已写入。
 
-不要在没有用户明确确认的情况下运行 `--publish` 或 `--replace`。如果源码仓库有未提交修改、版本格式不合法、测试失败、交叉编译失败或 GitHub 权限不足，应停止并报告具体错误。重新发布历史版本时，必须明确指定对应的 `--skill-version`；如果只操作公开仓库，必须同时使用 `--public-only`，避免移动源码仓库的历史标签。
+不要在没有用户明确确认的情况下运行 `--publish` 或 `--replace`。如果源码仓库有未提交修改、版本格式不合法、测试失败、交叉编译失败或 GitHub 权限不足，应停止并报告具体错误。重新发布历史版本时，必须明确指定对应的 `--version`；如果只操作公开仓库，必须同时使用 `--public-only`，避免移动源码仓库的历史标签。

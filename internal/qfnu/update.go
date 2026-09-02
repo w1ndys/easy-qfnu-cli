@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,15 +15,9 @@ var updateManifestURL = "https://github.com/w1ndys/easy-qfnu-skill/releases/late
 type releaseManifest struct {
 	ReleaseVersion string `json:"release_version"`
 	CLIVersion     string `json:"cli_version"`
-	SkillVersion   string `json:"skill_version"`
 }
 
-type skillInstallation struct {
-	path    string
-	version string
-}
-
-func checkUpdates(out, errOut io.Writer) int {
+func checkUpdates(out io.Writer) int {
 	// Development builds are intentionally usable offline. Release builds have
 	// a version injected by the release script and must pass this gate.
 	if version == "dev" {
@@ -44,30 +36,15 @@ func checkUpdates(out, errOut io.Writer) int {
 		return 1
 	}
 
-	issues := make([]payload, 0, 2)
-	if compareVersions(manifest.CLIVersion, version) > 0 {
+	issues := make([]payload, 0, 1)
+	if compareVersions(manifest.ReleaseVersion, version) > 0 {
 		issues = append(issues, payload{
 			"kind":            "cli",
 			"current_version": version,
-			"latest_version":  manifest.CLIVersion,
-			"hint":            "请先安装最新 easy-qfnu CLI，再重新运行当前命令。",
+			"latest_version":  manifest.ReleaseVersion,
+			"hint":            "请先安装最新 easy-qfnu CLI，并同步更新 easy-qfnu-skill，再重新运行当前命令。",
 			"release_url":     "https://github.com/w1ndys/easy-qfnu-skill/releases/latest",
 		})
-	}
-
-	if installation, ok := findSkillInstallation(); ok {
-		if compareVersions(manifest.SkillVersion, installation.version) > 0 {
-			issues = append(issues, payload{
-				"kind":            "skill",
-				"current_version": installation.version,
-				"latest_version":  manifest.SkillVersion,
-				"skill_path":      installation.path,
-				"hint":            "请先更新 easy-qfnu-skill，重新读取更新后的 SKILL.md，再重试当前命令。",
-				"release_url":     "https://github.com/w1ndys/easy-qfnu-skill/releases/latest",
-			})
-		}
-	} else {
-		fmt.Fprintln(errOut, "easy-qfnu: 未找到 easy-qfnu-skill/SKILL.md，无法比较 skill 版本；可设置 EASY_QFNU_SKILL_DIR 指向 skill 目录。")
 	}
 
 	if len(issues) == 0 {
@@ -103,59 +80,13 @@ func fetchReleaseManifest() (releaseManifest, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
 		return releaseManifest{}, err
 	}
-	if manifest.CLIVersion == "" || manifest.SkillVersion == "" {
-		return releaseManifest{}, fmt.Errorf("manifest 缺少 cli_version 或 skill_version")
+	if manifest.ReleaseVersion == "" {
+		manifest.ReleaseVersion = manifest.CLIVersion
+	}
+	if manifest.ReleaseVersion == "" {
+		return releaseManifest{}, fmt.Errorf("manifest 缺少 release_version")
 	}
 	return manifest, nil
-}
-
-func findSkillInstallation() (skillInstallation, bool) {
-	candidates := make([]string, 0, 12)
-	if value := strings.TrimSpace(os.Getenv("EASY_QFNU_SKILL_DIR")); value != "" {
-		candidates = append(candidates, value)
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		for dir := cwd; ; dir = filepath.Dir(dir) {
-			candidates = append(candidates, dir, filepath.Join(dir, "easy-qfnu-skill"))
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-		}
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		if codeHome := strings.TrimSpace(os.Getenv("CODEX_HOME")); codeHome != "" {
-			candidates = append(candidates, filepath.Join(codeHome, "skills", "easy-qfnu-skill"))
-		}
-		candidates = append(candidates, filepath.Join(home, ".codex", "skills", "easy-qfnu-skill"))
-	}
-	seen := make(map[string]struct{}, len(candidates))
-	for _, candidate := range candidates {
-		path, err := filepath.Abs(candidate)
-		if err != nil {
-			continue
-		}
-		if _, exists := seen[path]; exists {
-			continue
-		}
-		seen[path] = struct{}{}
-		if _, err := os.Stat(filepath.Join(path, "SKILL.md")); err != nil {
-			continue
-		}
-		if skillVersion, ok := readSkillVersion(filepath.Join(path, "VERSION")); ok {
-			return skillInstallation{path: path, version: skillVersion}, true
-		}
-	}
-	return skillInstallation{}, false
-}
-
-func readSkillVersion(path string) (string, bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	version := strings.TrimSpace(string(data))
-	return version, version != ""
 }
 
 func compareVersions(left, right string) int {

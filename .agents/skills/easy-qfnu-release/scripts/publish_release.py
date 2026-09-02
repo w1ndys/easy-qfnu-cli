@@ -22,9 +22,10 @@ TARGETS = (
     ("darwin", "arm64", ""),
     ("windows", "amd64", ".exe"),
 )
-VERSION_RE = re.compile(r"^v(?:\d{4}\.\d{2}\.\d{2}\.\d{2}|\d+\.\d+\.\d+)$")
+VERSION_RE = re.compile(r"^v\d{4}\.\d{2}\.\d{2}\.\d{2}$")
 MODULE_RE = re.compile(r"^module\s+(\S+)$", re.MULTILINE)
 COMMIT_RE = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?(?:!)?:\s*(?P<subject>.+)$", re.IGNORECASE)
+# Keep recognizing legacy HHmm tags while migrating historical Releases.
 DATE_TAG_RE = re.compile(r"^v\d{4}\.\d{2}\.\d{2}\.(?:\d{2}|\d{4})$")
 
 FEATURE_TYPES = {"feat", "feature"}
@@ -169,8 +170,6 @@ def public_subject(subject: str) -> str:
 
 def release_notes(
     version: str,
-    cli_version: str,
-    skill_version: str,
     previous_tag: str | None,
     cli_repo: Path,
     skill_repo: Path | None,
@@ -225,10 +224,10 @@ def release_notes(
         "| 项目 | 版本 |",
         "| --- | --- |",
         f"| Release | `{version}` |",
-        f"| CLI | `{cli_version}` |",
-        f"| skill | `{skill_version}` |",
+        f"| CLI | `{version}` |",
+        f"| skill | `{version}` |",
         "",
-        "`manifest.json` 包含版本对应关系和各平台产物的 SHA-256；skill 使用前请先更新到最新版本。",
+        "`manifest.json` 使用 Release 标签作为 Release、CLI 和 skill 的统一版本，并记录各平台产物的 SHA-256；skill 使用前请先更新到最新版本。",
     ]
     return "\n".join(lines) + "\n"
 
@@ -267,7 +266,7 @@ def validate_repo(repo: Path) -> str:
     return parse_module(repo)
 
 
-def build(repo: Path, module: str, cli_version: str, skill_version: str, output_dir: Path) -> list[Path]:
+def build(repo: Path, module: str, version: str, output_dir: Path) -> list[Path]:
     command(["go", "test", "./..."], cwd=repo)
     binaries: list[Path] = []
     for goos, goarch, suffix in TARGETS:
@@ -280,7 +279,7 @@ def build(repo: Path, module: str, cli_version: str, skill_version: str, output_
                 "go",
                 "build",
                 "-trimpath",
-                f"-ldflags=-s -w -X {module}/internal/qfnu.version={cli_version}",
+                f"-ldflags=-s -w -X {module}/internal/qfnu.version={version}",
                 "-o",
                 str(output),
                 "./cmd/easy-qfnu",
@@ -299,9 +298,9 @@ def build(repo: Path, module: str, cli_version: str, skill_version: str, output_
     manifest.write_text(
         json.dumps(
             {
-                "release_version": cli_version,
-                "cli_version": cli_version,
-                "skill_version": skill_version,
+                "release_version": version,
+                "cli_version": version,
+                "skill_version": version,
                 "assets": {
                     binary.name: {
                         "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
@@ -388,8 +387,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repo", type=Path, default=None, help="local CLI repository")
     parser.add_argument("--public-repo", default=None, help="public release repository")
     parser.add_argument("--version", default=today, help=f"date tag (default: {today})")
-    parser.add_argument("--skill-version", default=None, help="skill version (default: same as --version)")
-    parser.add_argument("--notes-file", type=Path, default=None, help="可选的自定义 Release 文案文件")
+    parser.add_argument("--notes-file", type=Path, default=None, help="可选的 Release 文案文件")
     parser.add_argument("--publish", action="store_true", help="create/push tag and upload release")
     parser.add_argument("--replace", action="store_true", help="replace an existing same-hour tag/release")
     parser.add_argument("--public-only", action="store_true", help="only update the public Release; do not create or push a source tag")
@@ -399,13 +397,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if not VERSION_RE.fullmatch(args.version):
-        raise ReleaseError("版本必须使用 vYYYY.MM.DD.HH 或 vX.Y.Z 格式，例如 v2026.08.30.14")
+        raise ReleaseError("版本必须使用 vYYYY.MM.DD.HH 格式，例如 v2026.08.30.14")
     default_repo = default_cli_repo()
     repo = (args.repo or Path(os.environ.get("EASY_QFNU_CLI_REPO", default_repo))).expanduser().resolve()
     public_repo = args.public_repo or os.environ.get("EASY_QFNU_PUBLIC_REPO", "w1ndys/easy-qfnu-skill")
-    skill_version = args.skill_version or args.version
-    if not VERSION_RE.fullmatch(skill_version):
-        raise ReleaseError("skill 版本必须使用 vYYYY.MM.DD.HH 或 vX.Y.Z 格式")
     if args.public_only and not args.publish:
         raise ReleaseError("--public-only 只能与 --publish 一起使用")
     module = validate_repo(repo)
@@ -419,8 +414,6 @@ def main() -> int:
     skill_repo = default_skill_repo(repo)
     notes = release_notes(
         args.version,
-        args.version,
-        skill_version,
         previous_tag,
         repo,
         skill_repo,
@@ -429,14 +422,12 @@ def main() -> int:
     print(f"源码仓库: {repo}")
     print(f"目标 Release: {public_repo}")
     print(f"上一个 Release: {previous_tag or '无（首次日期版本）'}")
-    print(f"Release: {args.version}")
-    print(f"CLI 版本: {args.version}")
-    print(f"skill 版本: {skill_version}")
+    print(f"Release/CLI/skill 统一版本: {args.version}")
     print("Release 文案:")
     print(notes, end="")
     print("模式: publish" if args.publish else "模式: dry-run")
     with tempfile.TemporaryDirectory(prefix="easy-qfnu-release-") as temp:
-        assets = build(repo, module, args.version, skill_version, Path(temp))
+        assets = build(repo, module, args.version, Path(temp))
         print("构建产物:")
         for asset in assets:
             print(f"  {asset.name} ({asset.stat().st_size} bytes)")
@@ -446,8 +437,6 @@ def main() -> int:
         else:
             print("dry-run 完成；获得用户明确确认后再加 --publish。")
     return 0
-
-
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
