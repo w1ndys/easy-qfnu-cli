@@ -29,7 +29,9 @@ func TestPrecourseSearchBuildsQueryAndReturnsCourses(t *testing.T) {
 		requestURL = r.URL
 		authorization = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"code":"OK","data":{"count":1,"courses":[{"courseCode":"590014","courseName":"音乐鉴赏"}]}}`)
+		if _, err := io.WriteString(w, `{"code":"OK","data":{"count":1,"courses":[{"courseCode":"590014","courseName":"音乐鉴赏"}]}}`); err != nil {
+			t.Errorf("write search response: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 	oldEndpoint := precourseEndpoint
@@ -76,7 +78,9 @@ func TestPrecourseMetaPopularAndPluralDispatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path+"?"+r.URL.RawQuery)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"code":0,"data":{"items":[]}}`)
+		if _, err := io.WriteString(w, `{"code":0,"data":{"items":[]}}`); err != nil {
+			t.Errorf("write metadata response: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 	oldEndpoint := precourseEndpoint
@@ -116,7 +120,9 @@ func TestPrecourseRejectsMissingConditionsAndRemoteFailure(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
-		_, _ = io.WriteString(w, `{"code":"UPSTREAM_UNAVAILABLE","data":null}`)
+		if _, err := io.WriteString(w, `{"code":"UPSTREAM_UNAVAILABLE","data":null}`); err != nil {
+			t.Errorf("write failure response: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 	oldEndpoint := precourseEndpoint

@@ -58,7 +58,9 @@ func (c telemetryClient) send(feature, status string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if bodyErr := discardResponseBody(resp); bodyErr != nil {
+		return bodyErr
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("telemetry HTTP %d", resp.StatusCode)
 	}

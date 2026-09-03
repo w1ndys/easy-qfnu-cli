@@ -1,7 +1,6 @@
 package qfnu
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -72,12 +71,14 @@ func fetchReleaseManifest() (releaseManifest, error) {
 	if err != nil {
 		return releaseManifest{}, err
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if bodyErr := discardResponseBody(resp); bodyErr != nil {
+			return releaseManifest{}, bodyErr
+		}
 		return releaseManifest{}, fmt.Errorf("manifest status: %s", resp.Status)
 	}
 	var manifest releaseManifest
-	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+	if err := decodeResponseJSON(resp, &manifest); err != nil {
 		return releaseManifest{}, err
 	}
 	if manifest.ReleaseVersion == "" {

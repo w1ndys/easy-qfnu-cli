@@ -1,7 +1,6 @@
 package qfnu
 
 import (
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"html"
@@ -16,14 +15,17 @@ import (
 const jwcBase = "https://jwc.qfnu.edu.cn"
 
 var (
-	liRE    = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li\s*>`)
-	h2RE    = regexp.MustCompile(`(?is)<h2\b[^>]*>(.*?)</h2\s*>`)
-	aRE     = regexp.MustCompile(`(?is)<a\b([^>]*)>(.*?)</a\s*>`)
-	pRE     = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p\s*>`)
-	titleRE = regexp.MustCompile(`(?is)<title\b[^>]*>(.*?)</title\s*>`)
-	infoRE  = regexp.MustCompile(`(?i)(?:/|^)info/(\d+)/(\d+)(?:\.htm)?`)
-	dateRE  = regexp.MustCompile(`\b(20\d{2}[-/.]\d{1,2}[-/.]\d{1,2})\b`)
-	pageRE  = regexp.MustCompile(`(?i)(?:第\s*\d+\s*/\s*|页次\s*[:：]\s*\d+\s*/\s*)(\d+)`)
+	liRE             = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li\s*>`)
+	h2RE             = regexp.MustCompile(`(?is)<h2\b[^>]*>(.*?)</h2\s*>`)
+	aRE              = regexp.MustCompile(`(?is)<a\b([^>]*)>(.*?)</a\s*>`)
+	pRE              = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p\s*>`)
+	titleRE          = regexp.MustCompile(`(?is)<title\b[^>]*>(.*?)</title\s*>`)
+	infoRE           = regexp.MustCompile(`(?i)(?:/|^)info/(\d+)/(\d+)(?:\.htm)?`)
+	dateRE           = regexp.MustCompile(`\b(20\d{2}[-/.]\d{1,2}[-/.]\d{1,2})\b`)
+	pageRE           = regexp.MustCompile(`(?i)(?:第\s*\d+\s*/\s*|页次\s*[:：]\s*\d+\s*/\s*)(\d+)`)
+	articleHeaderRE  = regexp.MustCompile(`(?is)<form\b[^>]*name=["']_newscontent_fromname["'][^>]*>.*?<h2\b[^>]*>(.*?)</h2>`)
+	articleDateRE    = regexp.MustCompile(`发布时间\s*[:：]?\s*(20\d{2}[-/.]\d{1,2}[-/.]\d{1,2})`)
+	articleContentRE = regexp.MustCompile(`(?is)<div\b[^>]*id=["']vsb_content["'][^>]*>(.*?)</div>`)
 )
 
 type jwcError struct{ message, hint string }
@@ -53,30 +55,6 @@ func attr(tag, name string) string {
 		return html.UnescapeString(strings.Trim(m[1], "\"'"))
 	}
 	return ""
-}
-
-func requestJWC(method, target string, body io.Reader, headers map[string]string) (string, string, error) {
-	req, err := http.NewRequest(method, target, body)
-	if err != nil {
-		return "", "", err
-	}
-	req.Header.Set("User-Agent", "easy-qfnu-skill/easy-qfnu")
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-	resp, err := (&http.Client{}).Do(req)
-	if err != nil {
-		return "", "", err
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", resp.Request.URL.String(), err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", resp.Request.URL.String(), fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	return string(b), resp.Request.URL.String(), nil
 }
 
 func resolveChannel(name string) (channel, error) {
@@ -139,128 +117,144 @@ func resolveURL(base, href string) string {
 	return baseURL.ResolveReference(parsed).String()
 }
 
-func listPage(item channel, page int) (string, string, error) {
-	if page < 1 {
-		return "", "", &jwcError{message: "page must be at least 1"}
-	}
-	path := "/" + item.Slug + ".htm"
-	if page > 1 {
-		path = "/" + item.Slug + "/" + strconv.Itoa(page) + ".htm"
-	}
-	return requestJWC(http.MethodGet, jwcBase+path, nil, nil)
+type jwcListOptions struct {
+	channel string
+	page    int
+	limit   int
 }
 
 func listJWC(args []string) (payload, error) {
-	channelName, page, limit := "notices", 1, 10
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--channel", "-c":
-			if i+1 >= len(args) {
-				return nil, errors.New("--channel requires a value")
-			}
-			channelName = args[i+1]
-			i++
-		case "--page":
-			if i+1 >= len(args) {
-				return nil, errors.New("--page requires a value")
-			}
-			page, _ = strconv.Atoi(args[i+1])
-			i++
-		case "--limit":
-			if i+1 >= len(args) {
-				return nil, errors.New("--limit requires a value")
-			}
-			limit, _ = strconv.Atoi(args[i+1])
-			i++
-		default:
-			return nil, fmt.Errorf("unknown option: %s", args[i])
-		}
-	}
-	item, err := resolveChannel(channelName)
+	options, err := parseJWCListOptions(args)
 	if err != nil {
 		return nil, err
 	}
-	raw, finalURL, err := listPage(item, page)
+	item, err := resolveChannel(options.channel)
+	if err != nil {
+		return nil, err
+	}
+	raw, finalURL, err := listJWCPage(item, options.page)
 	if err != nil {
 		return nil, &jwcError{message: "failed to fetch JWC list: " + err.Error(), hint: "请检查网络后重试"}
 	}
 	rows := parseListItems(raw, finalURL)
-	if limit > 0 && len(rows) > limit {
-		rows = rows[:limit]
+	if options.limit > 0 && len(rows) > options.limit {
+		rows = rows[:options.limit]
 	}
-	return success("jwc", payload{"channel": item.Key, "title": item.Title, "kind": item.Kind, "page": page, "limit": limit, "total": nil, "total_pages": page, "count": len(rows), "items": rows}), nil
+	return success("jwc", payload{"channel": item.Key, "title": item.Title, "kind": item.Kind, "page": options.page, "limit": options.limit, "total": nil, "total_pages": options.page, "count": len(rows), "items": rows}), nil
+}
+
+func parseJWCListOptions(args []string) (jwcListOptions, error) {
+	options := jwcListOptions{channel: "notices", page: 1, limit: 10}
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if index+1 >= len(args) {
+			return jwcListOptions{}, fmt.Errorf("%s requires a value", arg)
+		}
+		value := args[index+1]
+		switch arg {
+		case "--channel", "-c":
+			options.channel = value
+		case "--page":
+			parsed, err := parseJWCInteger(arg, value)
+			if err != nil {
+				return jwcListOptions{}, err
+			}
+			options.page = parsed
+		case "--limit":
+			parsed, err := parseJWCInteger(arg, value)
+			if err != nil {
+				return jwcListOptions{}, err
+			}
+			options.limit = parsed
+		default:
+			return jwcListOptions{}, fmt.Errorf("unknown option: %s", arg)
+		}
+		index++
+	}
+	return options, nil
+}
+
+func parseJWCInteger(option, value string) (int, error) {
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", option)
+	}
+	return parsed, nil
 }
 
 func channelsJWC() payload {
 	return success("jwc", payload{"channels": channels})
 }
 
+type jwcSearchOptions struct {
+	keyword string
+	page    int
+	limit   int
+}
+
 func searchJWC(args []string) (payload, error) {
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return nil, &jwcError{message: "search keyword is empty"}
+	options, err := parseJWCSearchOptions(args)
+	if err != nil {
+		return nil, err
 	}
-	keyword, page, limit := args[0], 1, 10
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--page":
-			if i+1 >= len(args) {
-				return nil, errors.New("--page requires a value")
-			}
-			page, _ = strconv.Atoi(args[i+1])
-			i++
-		case "--limit":
-			if i+1 >= len(args) {
-				return nil, errors.New("--limit requires a value")
-			}
-			limit, _ = strconv.Atoi(args[i+1])
-			i++
-		default:
-			return nil, fmt.Errorf("unknown option: %s", args[i])
-		}
-	}
-	encoded := base64.StdEncoding.EncodeToString([]byte(strings.TrimSpace(keyword)))
-	var raw, finalURL string
-	var err error
-	if page <= 1 {
-		form := url.Values{"lucenenewssearchkey": {encoded}, "_lucenesearchtype": {"1"}, "searchScope": {"1"}}
-		raw, finalURL, err = requestJWC(http.MethodPost, jwcBase+"/ssjg.jsp?wbtreeid=1001", strings.NewReader(form.Encode()), map[string]string{"Content-Type": "application/x-www-form-urlencoded", "Referer": jwcBase + "/"})
-	} else {
-		target := jwcBase + "/ssjg.jsp?wbtreeid=1001&searchScope=1&currentnum=" + strconv.Itoa(page) + "&newskeycode2=" + url.QueryEscape(encoded)
-		raw, finalURL, err = requestJWC(http.MethodGet, target, nil, map[string]string{"Referer": jwcBase + "/"})
-	}
+	raw, finalURL, err := searchJWCPage(options.keyword, options.page)
 	if err != nil {
 		return nil, &jwcError{message: "failed to search JWC: " + err.Error(), hint: "请检查网络后重试"}
 	}
 	rows := parseListItems(raw, finalURL)
-	if limit > 0 && len(rows) > limit {
-		rows = rows[:limit]
+	if options.limit > 0 && len(rows) > options.limit {
+		rows = rows[:options.limit]
 	}
-	totalPages := 1
-	if m := pageRE.FindStringSubmatch(cleanHTML(raw)); len(m) > 1 {
-		totalPages, _ = strconv.Atoi(m[1])
+	totalPages, err := parseJWCPageCount(raw)
+	if err != nil {
+		return nil, err
 	}
-	return success("jwc", payload{"query": strings.TrimSpace(keyword), "page": page, "limit": limit, "total": nil, "total_pages": totalPages, "count": len(rows), "items": rows, "url": finalURL}), nil
+	return success("jwc", payload{"query": strings.TrimSpace(options.keyword), "page": options.page, "limit": options.limit, "total": nil, "total_pages": totalPages, "count": len(rows), "items": rows, "url": finalURL}), nil
+}
+
+func parseJWCSearchOptions(args []string) (jwcSearchOptions, error) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return jwcSearchOptions{}, &jwcError{message: "search keyword is empty"}
+	}
+	options := jwcSearchOptions{keyword: args[0], page: 1, limit: 10}
+	for index := 1; index < len(args); index++ {
+		arg := args[index]
+		if index+1 >= len(args) {
+			return jwcSearchOptions{}, fmt.Errorf("%s requires a value", arg)
+		}
+		parsed, err := parseJWCInteger(arg, args[index+1])
+		if err != nil && (arg == "--page" || arg == "--limit") {
+			return jwcSearchOptions{}, err
+		}
+		switch arg {
+		case "--page":
+			options.page = parsed
+		case "--limit":
+			options.limit = parsed
+		default:
+			return jwcSearchOptions{}, fmt.Errorf("unknown option: %s", arg)
+		}
+		index++
+	}
+	return options, nil
+}
+
+func parseJWCPageCount(raw string) (int, error) {
+	match := pageRE.FindStringSubmatch(cleanHTML(raw))
+	if len(match) < 2 {
+		return 1, nil
+	}
+	parsed, err := strconv.Atoi(match[1])
+	if err != nil || parsed < 1 {
+		return 0, &jwcError{message: "invalid JWC pagination metadata", hint: "请稍后重试"}
+	}
+	return parsed, nil
 }
 
 func articleJWC(target string) (payload, error) {
-	target = strings.TrimSpace(target)
-	var resolved string
-	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
-		resolved = target
-	} else if strings.Contains(target, "content.jsp") {
-		resolved = resolveURL(jwcBase+"/", target)
-	} else {
-		if !strings.HasPrefix(target, "/") {
-			target = "/" + target
-		}
-		if !strings.HasSuffix(target, ".htm") {
-			target += ".htm"
-		}
-		resolved = resolveURL(jwcBase+"/", target)
-	}
-	parsed, err := url.Parse(resolved)
-	if err != nil || parsed.Host != "jwc.qfnu.edu.cn" {
-		return nil, &jwcError{message: "refusing non-JWC URL: " + resolved}
+	resolved, err := resolveJWCArticleURL(target)
+	if err != nil {
+		return nil, err
 	}
 	raw, finalURL, err := requestJWC(http.MethodGet, resolved, nil, nil)
 	if err != nil {
@@ -269,32 +263,64 @@ func articleJWC(target string) (payload, error) {
 	if strings.Contains(raw, "系统提示") && !strings.Contains(raw, "vsb_content") {
 		return nil, &jwcError{message: "article is not publicly readable: " + resolved, hint: "该文章仍是 content.jsp 草稿，正文需要登录后才能查看"}
 	}
-	title := ""
-	if m := regexp.MustCompile(`(?is)<form\b[^>]*name=["']_newscontent_fromname["'][^>]*>.*?<h2\b[^>]*>(.*?)</h2>`).FindStringSubmatch(raw); len(m) > 1 {
-		title = cleanHTML(m[1])
+	return parseJWCArticle(raw, finalURL)
+}
+
+func resolveJWCArticleURL(target string) (string, error) {
+	target = strings.TrimSpace(target)
+	resolved := target
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+		if !strings.Contains(target, "content.jsp") {
+			if !strings.HasPrefix(target, "/") {
+				target = "/" + target
+			}
+			if !strings.HasSuffix(target, ".htm") {
+				target += ".htm"
+			}
+		}
+		resolved = resolveURL(jwcBase+"/", target)
 	}
-	if title == "" && len(titleRE.FindStringSubmatch(raw)) > 1 {
-		title = cleanHTML(titleRE.FindStringSubmatch(raw)[1])
+	parsed, err := url.Parse(resolved)
+	if err != nil || parsed.Host != "jwc.qfnu.edu.cn" {
+		return "", &jwcError{message: "refusing non-JWC URL: " + resolved}
+	}
+	return resolved, nil
+}
+
+func parseJWCArticle(raw, finalURL string) (payload, error) {
+	title := parseJWCArticleTitle(raw)
+	if title == "" {
+		return nil, &jwcError{message: "could not parse article at " + finalURL}
 	}
 	date := ""
-	if m := regexp.MustCompile(`发布时间\s*[:：]?\s*(20\d{2}[-/.]\d{1,2}[-/.]\d{1,2})`).FindStringSubmatch(cleanHTML(raw)); len(m) > 1 {
-		date = strings.ReplaceAll(strings.ReplaceAll(m[1], "/", "-"), ".", "-")
+	if match := articleDateRE.FindStringSubmatch(cleanHTML(raw)); len(match) > 1 {
+		date = strings.ReplaceAll(strings.ReplaceAll(match[1], "/", "-"), ".", "-")
 	}
 	content := ""
-	if m := regexp.MustCompile(`(?is)<div\b[^>]*id=["']vsb_content["'][^>]*>(.*?)</div>`).FindStringSubmatch(raw); len(m) > 1 {
-		content = cleanHTML(m[1])
+	if match := articleContentRE.FindStringSubmatch(raw); len(match) > 1 {
+		content = cleanHTML(match[1])
 	}
 	if content == "" {
 		content = cleanHTML(raw)
 	}
-	if title == "" {
-		return nil, &jwcError{message: "could not parse article at " + finalURL}
-	}
 	id, category := "", ""
-	if m := infoRE.FindStringSubmatch(finalURL); len(m) > 2 {
-		category, id = m[1], m[2]
+	if match := infoRE.FindStringSubmatch(finalURL); len(match) > 2 {
+		category, id = match[1], match[2]
 	}
 	return success("jwc", payload{"id": id, "category_id": category, "title": title, "date": date, "editor": "", "section": "", "breadcrumb": []string{}, "url": finalURL, "content_text": content, "attachments": []any{}}), nil
+}
+
+func parseJWCArticleTitle(raw string) string {
+	title := ""
+	if match := articleHeaderRE.FindStringSubmatch(raw); len(match) > 1 {
+		title = cleanHTML(match[1])
+	}
+	if title == "" {
+		if match := titleRE.FindStringSubmatch(raw); len(match) > 1 {
+			title = cleanHTML(match[1])
+		}
+	}
+	return title
 }
 
 func runJWC(args []string, out io.Writer) int {
@@ -331,6 +357,8 @@ func runJWC(args []string, out io.Writer) int {
 }
 
 func usageJWC(w io.Writer) int {
-	fmt.Fprintln(w, "Usage: easy-qfnu jwc <list|get|search|channels> [options]")
+	if _, err := fmt.Fprintln(w, "Usage: easy-qfnu jwc <list|get|search|channels> [options]"); err != nil {
+		return 1
+	}
 	return 2
 }

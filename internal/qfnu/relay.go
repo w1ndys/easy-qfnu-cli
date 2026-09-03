@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 type relayTarget struct {
@@ -40,60 +39,81 @@ var relayTargets = map[string]relayTarget{
 	},
 }
 
+type relayCommandError struct {
+	message string
+	hint    string
+}
+
 func runJWXTRelay(action string, client *jwxtClient, input io.Reader, out io.Writer) int {
 	target, ok := relayTargets[action]
 	if !ok {
 		return relayFailure(out, "unknown relay action: "+action, "支持 feedback、recommendation、rank")
 	}
+	body, inputErr := readRelayInput(input)
+	if inputErr != nil {
+		return relayFailure(out, inputErr.message, inputErr.hint)
+	}
+	request, commandErr := newRelayHTTPRequest(target, client, body)
+	if commandErr != nil {
+		return relayFailure(out, commandErr.message, commandErr.hint)
+	}
+	status, data, clientErr := doRelayRequest(request)
+	if clientErr != nil {
+		if clientErr.readingResponse {
+			return relayFailure(out, "failed to read relay response", "请稍后重试")
+		}
+		return relayFailure(out, "relay request failed", "请检查网络和远程服务后重试")
+	}
+	return writeRelayResponse(status, data, out)
+}
+
+func readRelayInput(input io.Reader) ([]byte, *relayCommandError) {
 	body, err := io.ReadAll(input)
 	if err != nil {
-		return relayFailure(out, "failed to read relay input", "请通过标准输入提供 JSON")
+		return nil, &relayCommandError{message: "failed to read relay input", hint: "请通过标准输入提供 JSON"}
 	}
 	body = bytes.TrimSpace(body)
 	if !json.Valid(body) {
-		return relayFailure(out, "relay input must be valid JSON", "请通过标准输入提供 JSON 对象")
+		return nil, &relayCommandError{message: "relay input must be valid JSON", hint: "请通过标准输入提供 JSON 对象"}
 	}
+	return body, nil
+}
+
+func newRelayHTTPRequest(target relayTarget, client *jwxtClient, body []byte) (*http.Request, *relayCommandError) {
 	endpoint, requestBody, err := relayRequest(target, body)
 	if err != nil {
-		return relayFailure(out, err.Error(), "请提供符合该操作约定的 JSON 对象")
+		return nil, &relayCommandError{message: err.Error(), hint: "请提供符合该操作约定的 JSON 对象"}
 	}
-
-	req, err := http.NewRequest(relayMethod(target), endpoint, bytes.NewReader(requestBody))
+	request, err := http.NewRequest(relayMethod(target), endpoint, bytes.NewReader(requestBody))
 	if err != nil {
-		return relayFailure(out, "failed to build relay request", "请稍后重试")
+		return nil, &relayCommandError{message: "failed to build relay request", hint: "请稍后重试"}
 	}
-	req.Header.Set("Accept", "application/json")
+	request.Header.Set("Accept", "application/json")
 	if len(requestBody) > 0 {
-		req.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("User-Agent", "easy-qfnu/"+version)
+	request.Header.Set("User-Agent", "easy-qfnu/"+version)
 	if target.sendsCookie {
 		cookie := client.cookieHeader()
 		if cookie == "" {
-			return relayFailure(out, "no active JWXT session", "请先运行 easy-qfnu jwxt login")
+			return nil, &relayCommandError{message: "no active JWXT session", hint: "请先运行 easy-qfnu jwxt login"}
 		}
-		req.Header.Set("X-QFNU-JWXT-Cookie", cookie)
+		request.Header.Set("X-QFNU-JWXT-Cookie", cookie)
 	}
 	if target.sendsIdempotency {
-		req.Header.Set("Idempotency-Key", relayIdempotencyKey(body))
+		request.Header.Set("Idempotency-Key", relayIdempotencyKey(body))
 	}
+	return request, nil
+}
 
-	response, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-	if err != nil {
-		return relayFailure(out, "relay request failed", "请检查网络和远程服务后重试")
-	}
-	defer response.Body.Close()
-	data, readErr := io.ReadAll(response.Body)
-	if readErr != nil {
-		return relayFailure(out, "failed to read relay response", "请稍后重试")
-	}
+func writeRelayResponse(status int, data []byte, out io.Writer) int {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return relayFailure(out, fmt.Sprintf("relay HTTP %d", response.StatusCode), "远程服务没有返回 JSON")
+		return relayFailure(out, fmt.Sprintf("relay HTTP %d", status), "远程服务没有返回 JSON")
 	}
 	if _, err := out.Write(append(data, '\n')); err != nil {
 		return 1
 	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
+	if status < 200 || status >= 300 {
 		return 1
 	}
 	return 0
@@ -150,7 +170,7 @@ func relayIdempotencyKey(body []byte) string {
 }
 
 func (c *jwxtClient) cookieHeader() string {
-	cookies := c.jar.Cookies(mustURL(jwxtBase))
+	cookies := c.jar.Cookies(jwxtOriginURL())
 	values := make([]string, 0, len(cookies))
 	for _, cookie := range cookies {
 		if strings.TrimSpace(cookie.Name) != "" {
