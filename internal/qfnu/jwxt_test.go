@@ -1,6 +1,11 @@
 package qfnu
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 func TestEncodeCredentialsMatchesQFNUProtocol(t *testing.T) {
 	got := encodeCredentials("abc", "pw", "XYZ123", "10120")
@@ -57,5 +62,60 @@ func TestParseListItems(t *testing.T) {
 	items := parseListItems(raw, jwcBase+"/tz_j_.htm")
 	if len(items) != 1 || items[0].ID != "7719" || items[0].CategoryID != "1103" {
 		t.Fatalf("unexpected list item: %#v", items)
+	}
+}
+
+func TestRequestFollowsSameOriginRedirect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/start":
+			if r.Method != http.MethodPost {
+				t.Errorf("initial method = %s, want POST", r.Method)
+			}
+			http.Redirect(w, r, "/finish", http.StatusFound)
+		case "/finish":
+			if r.Method != http.MethodGet {
+				t.Errorf("redirected method = %s, want GET", r.Method)
+			}
+			_, _ = w.Write([]byte("authenticated"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := &jwxtClient{http: &http.Client{CheckRedirect: sameOriginRedirect(server.URL)}}
+	status, finalURL, body, err := client.request(http.MethodPost, server.URL+"/start", strings.NewReader("payload"), nil)
+	if err != nil {
+		t.Fatalf("request returned error: %v", err)
+	}
+	if status != http.StatusOK || finalURL != server.URL+"/finish" || string(body) != "authenticated" {
+		t.Fatalf("request = status %d, final %q, body %q", status, finalURL, body)
+	}
+
+}
+
+func TestRequestStopsCrossOriginRedirect(t *testing.T) {
+	var destinationHits int
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		destinationHits++
+		_, _ = w.Write([]byte("must not follow"))
+	}))
+	t.Cleanup(destination.Close)
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL+"/finish", http.StatusFound)
+	}))
+	t.Cleanup(source.Close)
+
+	client := &jwxtClient{http: &http.Client{CheckRedirect: sameOriginRedirect(source.URL)}}
+	status, finalURL, body, err := client.request(http.MethodGet, source.URL+"/start", nil, nil)
+	if err != nil {
+		t.Fatalf("request returned error: %v", err)
+	}
+	if status != http.StatusFound || finalURL != source.URL+"/start" {
+		t.Fatalf("cross-origin redirect = status %d, final %q", status, finalURL)
+	}
+	if destinationHits != 0 || !strings.Contains(string(body), destination.URL) {
+		t.Fatalf("cross-origin redirect was followed: hits=%d body=%q", destinationHits, body)
 	}
 }

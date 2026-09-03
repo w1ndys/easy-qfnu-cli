@@ -94,6 +94,20 @@ func expandPath(path string) string {
 	return path
 }
 
+// JWXT authentication completes through same-origin redirects; external redirects
+// stay un-followed so a server cannot move the session to another origin.
+func sameOriginRedirect(origin string) func(*http.Request, []*http.Request) error {
+	parsedOrigin, parseErr := url.Parse(origin)
+	return func(req *http.Request, _ []*http.Request) error {
+		if parseErr != nil || parsedOrigin == nil || req.URL == nil || req.URL.User != nil ||
+			!strings.EqualFold(req.URL.Scheme, parsedOrigin.Scheme) ||
+			!strings.EqualFold(req.URL.Host, parsedOrigin.Host) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+}
+
 func newJWXTClient(sessionPath, ocrURL string) *jwxtClient {
 	jar, _ := cookiejar.New(nil)
 	client := &jwxtClient{sessionPath: defaultSessionPath(), ocrURL: strings.TrimRight(ocrURL, "/"), jar: jar}
@@ -166,6 +180,18 @@ func (c *jwxtClient) clear() {
 }
 
 func (c *jwxtClient) request(method, target string, body io.Reader, headers map[string]string) (int, string, []byte, error) {
+	return c.requestWithClient(c.http, method, target, body, headers)
+}
+
+// The login endpoint hands off to JSXSD through same-origin 302s. Keep regular
+// requests manual so authentication-sensitive pages remain explicitly checked.
+func (c *jwxtClient) requestSameOrigin(method, target string, body io.Reader, headers map[string]string) (int, string, []byte, error) {
+	redirectClient := *c.http
+	redirectClient.CheckRedirect = sameOriginRedirect(jwxtBase)
+	return c.requestWithClient(&redirectClient, method, target, body, headers)
+}
+
+func (c *jwxtClient) requestWithClient(client *http.Client, method, target string, body io.Reader, headers map[string]string) (int, string, []byte, error) {
 	req, err := http.NewRequest(method, target, body)
 	if err != nil {
 		return 0, "", nil, err
@@ -174,7 +200,7 @@ func (c *jwxtClient) request(method, target string, body io.Reader, headers map[
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	resp, err := c.http.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, target, nil, err
 	}
@@ -185,6 +211,11 @@ func (c *jwxtClient) request(method, target string, body io.Reader, headers map[
 
 func (c *jwxtClient) text(method, target string, body io.Reader, headers map[string]string) (int, string, string, error) {
 	status, finalURL, data, err := c.request(method, target, body, headers)
+	return status, finalURL, string(data), err
+}
+
+func (c *jwxtClient) textSameOrigin(method, target string, body io.Reader, headers map[string]string) (int, string, string, error) {
+	status, finalURL, data, err := c.requestSameOrigin(method, target, body, headers)
 	return status, finalURL, string(data), err
 }
 
@@ -322,7 +353,7 @@ func (c *jwxtClient) login(username, password, captcha string, saveCredentials b
 	}
 	encoded := encodeCredentials(username, password, parts[0], parts[1])
 	form := url.Values{"userAccount": {""}, "userPassword": {""}, "RANDOMCODE": {captcha}, "encoded": {encoded}}
-	_, _, loginBody, err := c.text(http.MethodPost, loginURL, strings.NewReader(form.Encode()), map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
+	_, _, loginBody, err := c.textSameOrigin(http.MethodPost, loginURL, strings.NewReader(form.Encode()), map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
 	if err != nil {
 		return nil, err
 	}
