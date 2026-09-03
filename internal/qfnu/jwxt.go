@@ -3,6 +3,7 @@ package qfnu
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -108,8 +109,11 @@ func sameOriginRedirect(origin string) func(*http.Request, []*http.Request) erro
 	}
 }
 
-func newJWXTClient(sessionPath, ocrURL string) *jwxtClient {
-	jar, _ := cookiejar.New(nil)
+func newJWXTClient(sessionPath, ocrURL string) (*jwxtClient, error) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("create JWXT cookie jar: %w", err)
+	}
 	client := &jwxtClient{sessionPath: defaultSessionPath(), ocrURL: strings.TrimRight(ocrURL, "/"), jar: jar}
 	if sessionPath != "" {
 		client.sessionPath = expandPath(sessionPath)
@@ -117,50 +121,72 @@ func newJWXTClient(sessionPath, ocrURL string) *jwxtClient {
 	client.http = &http.Client{Jar: jar, Timeout: 30 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}
-	client.load()
-	return client
+	return client, nil
 }
 
-func mustURL(value string) *url.URL { parsed, _ := url.Parse(value); return parsed }
+// jwxtOriginURL builds the fixed cookie origin without silently discarding a parse error.
+func jwxtOriginURL() *url.URL {
+	return &url.URL{Scheme: "http", Host: "zhjw.qfnu.edu.cn"}
+}
 
-func (c *jwxtClient) load() {
+func (c *jwxtClient) load() error {
 	data, err := os.ReadFile(c.sessionPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
-		return
+		return fmt.Errorf("read JWXT session: %w", err)
 	}
 	var saved sessionFile
-	if json.Unmarshal(data, &saved) != nil {
-		return
+	if err := json.Unmarshal(data, &saved); err != nil {
+		return fmt.Errorf("parse JWXT session: %w", err)
 	}
 	c.meta = saved
 	for _, item := range saved.Cookies {
 		cookie := &http.Cookie{Name: item.Name, Value: item.Value, Path: item.Path, Domain: item.Domain, Expires: item.Expires, Secure: item.Secure}
-		c.jar.SetCookies(mustURL(jwxtBase), []*http.Cookie{cookie})
+		c.jar.SetCookies(jwxtOriginURL(), []*http.Cookie{cookie})
 	}
+	return nil
 }
 
-func (c *jwxtClient) resetJar() {
-	jar, _ := cookiejar.New(nil)
+func (c *jwxtClient) resetJar() error {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return fmt.Errorf("create JWXT cookie jar: %w", err)
+	}
 	c.jar = jar
 	c.http.Jar = jar
 	c.meta = sessionFile{}
+	return nil
 }
 
 func (c *jwxtClient) persist(fields payload) error {
 	for key, value := range fields {
 		switch key {
 		case "username":
-			c.meta.Username, _ = value.(string)
-		case "captcha_pending":
-			c.meta.CaptchaPending, _ = value.(bool)
-		case "profile":
-			if profile, ok := value.(payload); ok {
-				c.meta.Profile = profile
+			username, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("session field %s must be a string", key)
 			}
+			c.meta.Username = username
+		case "captcha_pending":
+			pending, ok := value.(bool)
+			if !ok {
+				return fmt.Errorf("session field %s must be a boolean", key)
+			}
+			c.meta.CaptchaPending = pending
+		case "profile":
+			profile, ok := value.(payload)
+			if !ok {
+				return fmt.Errorf("session field %s must be an object", key)
+			}
+			c.meta.Profile = profile
+		default:
+			return fmt.Errorf("unsupported session field: %s", key)
 		}
 	}
 	c.meta.Cookies = nil
-	for _, item := range c.jar.Cookies(mustURL(jwxtBase)) {
+	for _, item := range c.jar.Cookies(jwxtOriginURL()) {
 		c.meta.Cookies = append(c.meta.Cookies, sessionCookie{Name: item.Name, Value: item.Value, Path: item.Path, Domain: item.Domain, Expires: item.Expires, Secure: item.Secure})
 	}
 	c.meta.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -174,9 +200,11 @@ func (c *jwxtClient) persist(fields payload) error {
 	return os.WriteFile(c.sessionPath, append(data, '\n'), 0600)
 }
 
-func (c *jwxtClient) clear() {
-	_ = os.Remove(c.sessionPath)
-	c.resetJar()
+func (c *jwxtClient) clear() error {
+	if err := os.Remove(c.sessionPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("clear JWXT session: %w", err)
+	}
+	return c.resetJar()
 }
 
 func (c *jwxtClient) request(method, target string, body io.Reader, headers map[string]string) (int, string, []byte, error) {
@@ -204,9 +232,8 @@ func (c *jwxtClient) requestWithClient(client *http.Client, method, target strin
 	if err != nil {
 		return 0, target, nil, err
 	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	return resp.StatusCode, resp.Request.URL.String(), data, err
+	data, bodyErr := readResponseBody(resp)
+	return resp.StatusCode, resp.Request.URL.String(), data, bodyErr
 }
 
 func (c *jwxtClient) text(method, target string, body io.Reader, headers map[string]string) (int, string, string, error) {
@@ -270,7 +297,9 @@ func (c *jwxtClient) fetchCaptcha() ([]byte, error) {
 }
 
 func (c *jwxtClient) captcha(out string) (payload, error) {
-	c.resetJar()
+	if err := c.resetJar(); err != nil {
+		return nil, err
+	}
 	if err := c.initSession(); err != nil {
 		return nil, err
 	}
@@ -327,7 +356,9 @@ func (c *jwxtClient) login(username, password, captcha string, saveCredentials b
 		return nil, &jwxtError{message: "username/password required", hint: "传入 --username/--password 或设置 QFNU_JWXT_USERNAME/QFNU_JWXT_PASSWORD"}
 	}
 	if captcha == "" {
-		c.resetJar()
+		if err := c.resetJar(); err != nil {
+			return nil, err
+		}
 		if err := c.initSession(); err != nil {
 			return nil, err
 		}
@@ -340,7 +371,7 @@ func (c *jwxtClient) login(username, password, captcha string, saveCredentials b
 			return nil, &jwxtError{message: err.Error(), hint: "部署独立 ddddocr 服务，或运行 easy-qfnu jwxt captcha 后手动传入验证码"}
 		}
 	}
-	if len(c.jar.Cookies(mustURL(jwxtBase))) == 0 {
+	if len(c.jar.Cookies(jwxtOriginURL())) == 0 {
 		return nil, &jwxtError{message: "no active captcha session", hint: "先运行 easy-qfnu jwxt captcha，再用 --captcha 提交识别结果"}
 	}
 	status, _, sess, err := c.text(http.MethodPost, sessURL, strings.NewReader(""), map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
@@ -374,13 +405,15 @@ func (c *jwxtClient) login(username, password, captcha string, saveCredentials b
 		return nil, &jwxtError{message: "login failed: success marker missing on xsMain.jsp"}
 	}
 	profile := parseProfile(main)
-	if bodyStatus, _, body, _ := c.text(http.MethodGet, profileURL, nil, nil); bodyStatus == http.StatusOK {
-		mergeProfile(profile, parseProfile(body))
-	}
+	profileWarning := c.enrichProfile(profile)
 	if err := c.persist(payload{"username": username, "captcha_pending": false, "profile": profile}); err != nil {
 		return nil, err
 	}
 	result := success("jwxt", payload{"logged_in": true, "username": username, "profile": profile, "main_url": mainURL, "session_path": c.sessionPath, "captcha": "vision"})
+	if profileWarning != "" {
+		// The main page already proved login; profile enrichment failure is non-fatal.
+		result["profile_warning"] = profileWarning
+	}
 	if c.ocrURL != "" {
 		result["ocr_url"] = c.ocrURL
 	}
@@ -459,6 +492,18 @@ func mergeProfile(dst, src payload) {
 	}
 }
 
+func (c *jwxtClient) enrichProfile(profile payload) string {
+	status, _, body, err := c.text(http.MethodGet, profileURL, nil, nil)
+	if err != nil {
+		return "个人资料补全请求失败：" + err.Error()
+	}
+	if status != http.StatusOK {
+		return fmt.Sprintf("个人资料补全返回 HTTP %d", status)
+	}
+	mergeProfile(profile, parseProfile(body))
+	return ""
+}
+
 func stripTags(raw string) string {
 	raw = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>`).ReplaceAllString(raw, " ")
 	raw = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style\s*>`).ReplaceAllString(raw, " ")
@@ -532,16 +577,19 @@ func parseSchedule(raw string) []payload {
 	return result
 }
 
-func loadCredentialsFile() (string, string) {
+func loadCredentialsFile() (string, string, error) {
 	data, err := os.ReadFile(defaultCredentialsPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return "", "", nil
+	}
 	if err != nil {
-		return "", ""
+		return "", "", fmt.Errorf("read credentials: %w", err)
 	}
 	var value struct{ Username, Password string }
-	if json.Unmarshal(data, &value) != nil {
-		return "", ""
+	if err := json.Unmarshal(data, &value); err != nil {
+		return "", "", fmt.Errorf("parse credentials: %w", err)
 	}
-	return value.Username, value.Password
+	return value.Username, value.Password, nil
 }
 
 func saveCredentialsFile(username, password string) error {
@@ -549,15 +597,29 @@ func saveCredentialsFile(username, password string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	data, _ := json.MarshalIndent(map[string]string{"username": username, "password": password}, "", "  ")
+	data, err := json.MarshalIndent(map[string]string{"username": username, "password": password}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal credentials: %w", err)
+	}
 	return os.WriteFile(path, append(data, '\n'), 0600)
 }
 
-func clearCredentialsFile() bool { return os.Remove(defaultCredentialsPath()) == nil }
+func clearCredentialsFile() (bool, error) {
+	err := os.Remove(defaultCredentialsPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("remove credentials: %w", err)
+	}
+	return true, nil
+}
 
 func runJWXT(args []string, out io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" {
-		fmt.Fprintln(out, "Usage: easy-qfnu jwxt <captcha|login|grades|schedule|evaluations|evaluate|status|logout|forget-credentials|relay>")
+		if _, err := fmt.Fprintln(out, "Usage: easy-qfnu jwxt <captcha|login|grades|schedule|evaluations|evaluate|status|logout|forget-credentials|relay>"); err != nil {
+			return 1
+		}
 		return 2
 	}
 	action := args[0]
@@ -565,7 +627,14 @@ func runJWXT(args []string, out io.Writer) int {
 		if len(args) != 2 {
 			return writeJSON(out, failure("jwxt", "relay requires one fixed action", "支持 feedback、recommendation、rank"))
 		}
-		return runJWXTRelay(args[1], newJWXTClient("", ""), os.Stdin, out)
+		client, clientErr := newJWXTClient("", "")
+		if clientErr != nil {
+			return writeJSON(out, failure("jwxt", clientErr.Error(), "无法初始化教务客户端"))
+		}
+		if loadErr := client.load(); loadErr != nil {
+			return writeJSON(out, failure("jwxt", loadErr.Error(), "请检查本地会话文件"))
+		}
+		return runJWXTRelay(args[1], client, os.Stdin, out)
 	}
 	var ocrURL, sessionPath, username, password, captcha, output, semester, week, mode string
 	var save, saveSet, forget, confirm bool
@@ -614,7 +683,11 @@ func runJWXT(args []string, out io.Writer) int {
 		case "--kbjcmsid":
 			mode = value
 		case "--score", "--target-score":
-			targetScore, _ = strconv.Atoi(value)
+			parsed, parseErr := strconv.Atoi(value)
+			if parseErr != nil {
+				return writeJSON(out, failure("jwxt", arg+" must be an integer", ""))
+			}
+			targetScore = parsed
 		case "--course":
 			courses = append(courses, strings.Split(value, ",")...)
 		default:
@@ -628,15 +701,36 @@ func runJWXT(args []string, out io.Writer) int {
 	if !saveSet && strings.EqualFold(os.Getenv("QFNU_JWXT_SAVE_CREDENTIALS"), "yes") {
 		save = true
 	}
-	client := newJWXTClient(sessionPath, ocrURL)
 	if action == "forget-credentials" {
-		return writeJSON(out, success("jwxt", payload{"credentials_removed": clearCredentialsFile(), "credentials_path": defaultCredentialsPath()}))
+		removed, err := clearCredentialsFile()
+		if err != nil {
+			return writeJSON(out, failure("jwxt", err.Error(), "请检查凭据文件权限"))
+		}
+		return writeJSON(out, success("jwxt", payload{"credentials_removed": removed, "credentials_path": defaultCredentialsPath()}))
+	}
+	client, clientErr := newJWXTClient(sessionPath, ocrURL)
+	if clientErr != nil {
+		return writeJSON(out, failure("jwxt", clientErr.Error(), "无法初始化教务客户端"))
+	}
+	// Captcha, password login, and logout replace or remove the old session;
+	// loading a damaged file first would prevent those recovery actions.
+	needsSession := action != "captcha" && action != "logout" && (action != "login" || captcha != "")
+	if needsSession {
+		if loadErr := client.load(); loadErr != nil {
+			return writeJSON(out, failure("jwxt", loadErr.Error(), "请检查本地会话文件；可运行 logout 清理损坏会话"))
+		}
 	}
 	if action == "logout" {
-		client.clear()
+		if err := client.clear(); err != nil {
+			return writeJSON(out, failure("jwxt", err.Error(), "请检查本地会话文件权限"))
+		}
 		result := success("jwxt", payload{"logged_in": false, "session_path": client.sessionPath})
 		if forget {
-			result["credentials_removed"] = clearCredentialsFile()
+			removed, err := clearCredentialsFile()
+			if err != nil {
+				return writeJSON(out, failure("jwxt", err.Error(), "会话已清理；请检查凭据文件权限"))
+			}
+			result["credentials_removed"] = removed
 			result["credentials_path"] = defaultCredentialsPath()
 		}
 		return writeJSON(out, result)
@@ -657,7 +751,11 @@ func runJWXT(args []string, out io.Writer) int {
 			password = os.Getenv("QFNU_JWXT_PASSWORD")
 		}
 		if username == "" || password == "" {
-			username, password = loadCredentialsFile()
+			loadedUsername, loadedPassword, loadErr := loadCredentialsFile()
+			if loadErr != nil {
+				return writeJSON(out, failure("jwxt", loadErr.Error(), "请检查凭据文件"))
+			}
+			username, password = loadedUsername, loadedPassword
 		}
 		result, err = client.login(username, password, captcha, save)
 	case "status", "whoami":
@@ -688,7 +786,7 @@ func runJWXT(args []string, out io.Writer) int {
 }
 
 func (c *jwxtClient) status() (payload, error) {
-	if len(c.jar.Cookies(mustURL(jwxtBase))) == 0 {
+	if len(c.jar.Cookies(jwxtOriginURL())) == 0 {
 		return success("jwxt", payload{"logged_in": false, "session_path": c.sessionPath, "hint": "run easy-qfnu jwxt login first"}), nil
 	}
 	status, finalURL, main, err := c.text(http.MethodGet, mainURL, nil, nil)
@@ -697,7 +795,10 @@ func (c *jwxtClient) status() (payload, error) {
 	}
 	if status != http.StatusOK || containsAny(main, []string{"请输入账号", "请输入密码", "请输入验证码"}) || !containsAny(main, []string{"教学一体化服务平台", "glyphicon-class"}) {
 		if c.ocrURL != "" {
-			username, password := loadCredentialsFile()
+			username, password, credentialErr := loadCredentialsFile()
+			if credentialErr != nil {
+				return nil, credentialErr
+			}
 			if username != "" && password != "" {
 				if relogin, reloginErr := c.login(username, password, "", false); reloginErr == nil {
 					relogin["auto_relogin"] = true
@@ -712,11 +813,16 @@ func (c *jwxtClient) status() (payload, error) {
 		return success("jwxt", payload{"logged_in": false, "session_path": c.sessionPath, "hint": hint}), nil
 	}
 	profile := parseProfile(main)
-	if pstatus, _, body, _ := c.text(http.MethodGet, profileURL, nil, nil); pstatus == http.StatusOK {
-		mergeProfile(profile, parseProfile(body))
+	profileWarning := c.enrichProfile(profile)
+	if err := c.persist(payload{"profile": profile, "username": c.meta.Username}); err != nil {
+		return nil, err
 	}
-	_ = c.persist(payload{"profile": profile, "username": c.meta.Username})
-	return success("jwxt", payload{"logged_in": true, "username": c.meta.Username, "profile": profile, "main_url": finalURL, "session_path": c.sessionPath}), nil
+	result := success("jwxt", payload{"logged_in": true, "username": c.meta.Username, "profile": profile, "main_url": finalURL, "session_path": c.sessionPath})
+	if profileWarning != "" {
+		// Session validity comes from the main page; expose enrichment failure separately.
+		result["profile_warning"] = profileWarning
+	}
+	return result, nil
 }
 
 func (c *jwxtClient) grades(semester string) (payload, error) {
@@ -880,7 +986,6 @@ func parseEvaluationDetail(raw string, summary payload) (*evaluationDetail, erro
 		if indicator == "" {
 			continue
 		}
-		title := stripTags(row[1])
 		options := make([]payload, 0)
 		radioRE := regexp.MustCompile(`(?is)<input\b[^>]*type=["']radio["'][^>]*>`)
 		for _, tag := range radioRE.FindAllString(row[1], -1) {
@@ -890,14 +995,17 @@ func parseEvaluationDetail(raw string, summary payload) (*evaluationDetail, erro
 			}
 			option := payload{"option_id": id, "label": id, "score": float64(0)}
 			if m := regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)`).FindStringSubmatch(row[1]); len(m) > 1 {
-				option["score"], _ = strconv.ParseFloat(m[1], 64)
+				score, err := strconv.ParseFloat(m[1], 64)
+				if err != nil {
+					return nil, fmt.Errorf("invalid evaluation option score %q: %w", m[1], err)
+				}
+				option["score"] = score
 			}
 			options = append(options, option)
 		}
 		if len(options) > 0 {
 			detail.IDs = append(detail.IDs, indicator)
 			detail.Options[indicator] = options
-			_ = title
 		}
 	}
 	if len(detail.IDs) == 0 {
@@ -907,10 +1015,11 @@ func parseEvaluationDetail(raw string, summary payload) (*evaluationDetail, erro
 }
 
 func (c *jwxtClient) evaluationDetail(summary payload) (*evaluationDetail, error) {
-	href, _ := summary["href"].(string)
-	if href == "" {
+	href, ok := summary["href"].(string)
+	if !ok || strings.TrimSpace(href) == "" {
 		return nil, &jwxtError{message: "evaluation detail link not found", hint: "课程列表没有提供评教链接"}
 	}
+	href = strings.TrimSpace(href)
 	parsed, err := url.Parse(href)
 	if err != nil || parsed.Host != "zhjw.qfnu.edu.cn" {
 		return nil, &jwxtError{message: "evaluation detail URL is outside JWXT host"}
@@ -925,14 +1034,28 @@ func (c *jwxtClient) evaluationDetail(summary payload) (*evaluationDetail, error
 	return parseEvaluationDetail(raw, summary)
 }
 
-func evaluationPreset(detail *evaluationDetail, target int) (map[string]string, float64) {
+func evaluationOptionValues(option payload) (string, float64, error) {
+	optionID, ok := option["option_id"].(string)
+	if !ok || strings.TrimSpace(optionID) == "" {
+		return "", 0, errors.New("evaluation option is missing option_id")
+	}
+	score, ok := option["score"].(float64)
+	if !ok {
+		return "", 0, fmt.Errorf("evaluation option %s has an invalid score", optionID)
+	}
+	return optionID, score, nil
+}
+
+func evaluationPreset(detail *evaluationDetail, target int) (map[string]string, float64, error) {
 	totals := map[int]map[string]string{0: {}}
 	for _, id := range detail.IDs {
 		next := map[int]map[string]string{}
 		for total, selections := range totals {
 			for _, option := range detail.Options[id] {
-				score, _ := option["score"].(float64)
-				value, _ := option["option_id"].(string)
+				value, score, err := evaluationOptionValues(option)
+				if err != nil {
+					return nil, 0, err
+				}
 				candidate := make(map[string]string, len(selections)+1)
 				for key, selected := range selections {
 					candidate[key] = selected
@@ -943,6 +1066,9 @@ func evaluationPreset(detail *evaluationDetail, target int) (map[string]string, 
 					next[total+scaled] = candidate
 				}
 			}
+		}
+		if len(next) == 0 {
+			return nil, 0, fmt.Errorf("evaluation indicator %s has no valid options", id)
 		}
 		totals = next
 	}
@@ -956,20 +1082,34 @@ func evaluationPreset(detail *evaluationDetail, target int) (map[string]string, 
 			best, bestDistance = total, distance
 		}
 	}
-	return totals[best], float64(best) / 100
+	return totals[best], float64(best) / 100, nil
 }
 
-func evaluationPreview(detail *evaluationDetail, selections map[string]string) []payload {
+func evaluationPreview(detail *evaluationDetail, selections map[string]string) ([]payload, error) {
 	preview := make([]payload, 0, len(detail.IDs))
 	for _, id := range detail.IDs {
+		found := false
 		for _, option := range detail.Options[id] {
-			if option["option_id"] == selections[id] {
-				preview = append(preview, payload{"id": id, "option": option["label"], "score": option["score"]})
-				break
+			optionID, score, err := evaluationOptionValues(option)
+			if err != nil {
+				return nil, err
 			}
+			if optionID != selections[id] {
+				continue
+			}
+			label, ok := option["label"].(string)
+			if !ok || strings.TrimSpace(label) == "" {
+				return nil, fmt.Errorf("evaluation option %s is missing label", optionID)
+			}
+			preview = append(preview, payload{"id": id, "option": label, "score": score})
+			found = true
+			break
+		}
+		if !found {
+			return nil, fmt.Errorf("evaluation indicator %s has no selected option", id)
 		}
 	}
-	return preview
+	return preview, nil
 }
 
 func (c *jwxtClient) submitEvaluation(detail *evaluationDetail, selections map[string]string) (string, error) {
@@ -988,8 +1128,10 @@ func (c *jwxtClient) submitEvaluation(detail *evaluationDetail, selections map[s
 		}
 		form.Set("pj0601id_"+id, selected)
 		for _, option := range detail.Options[id] {
-			optionID, _ := option["option_id"].(string)
-			score, _ := option["score"].(float64)
+			optionID, score, err := evaluationOptionValues(option)
+			if err != nil {
+				return "", err
+			}
 			form.Set("pj0601fz_"+id+"_"+optionID, strconv.FormatFloat(score, 'f', -1, 64))
 		}
 	}
@@ -1015,7 +1157,10 @@ func (c *jwxtClient) evaluate(score int, courses []string, confirm bool) (payloa
 	if err != nil {
 		return nil, err
 	}
-	items, _ := listing["items"].([]payload)
+	items, ok := listing["items"].([]payload)
+	if !ok {
+		return nil, errors.New("evaluation listing has invalid items")
+	}
 	preview := make([]payload, 0)
 	type plan struct {
 		detail     *evaluationDetail
@@ -1026,15 +1171,26 @@ func (c *jwxtClient) evaluate(score int, courses []string, confirm bool) (payloa
 		if len(courses) > 0 && !containsString(courses, fmt.Sprint(item["id"])) {
 			continue
 		}
-		if status, _ := item["status"].(string); status != "未评" {
+		status, ok := item["status"].(string)
+		if !ok {
+			return nil, errors.New("evaluation item has invalid status")
+		}
+		if status != "未评" {
 			continue
 		}
 		detail, err := c.evaluationDetail(item)
 		if err != nil {
 			return nil, err
 		}
-		selections, total := evaluationPreset(detail, score)
-		preview = append(preview, payload{"id": item["id"], "course_name": item["course_name"], "teacher_name": item["teacher_name"], "target_score": score, "total_score": total, "indicators": evaluationPreview(detail, selections)})
+		selections, total, presetErr := evaluationPreset(detail, score)
+		if presetErr != nil {
+			return nil, presetErr
+		}
+		indicators, previewErr := evaluationPreview(detail, selections)
+		if previewErr != nil {
+			return nil, previewErr
+		}
+		preview = append(preview, payload{"id": item["id"], "course_name": item["course_name"], "teacher_name": item["teacher_name"], "target_score": score, "total_score": total, "indicators": indicators})
 		plans = append(plans, plan{detail: detail, selections: selections})
 	}
 	result := success("jwxt", payload{"action": "evaluate", "target_score": score, "count": len(preview), "items": preview, "evaluation_preview": preview, "session_path": c.sessionPath})

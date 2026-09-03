@@ -1,8 +1,12 @@
 package qfnu
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -117,5 +121,111 @@ func TestRequestStopsCrossOriginRedirect(t *testing.T) {
 	}
 	if destinationHits != 0 || !strings.Contains(string(body), destination.URL) {
 		t.Fatalf("cross-origin redirect was followed: hits=%d body=%q", destinationHits, body)
+	}
+}
+
+func TestRunJWXTRejectsNonNumericScore(t *testing.T) {
+	var output strings.Builder
+
+	runJWXT([]string{"evaluate", "--score", "high"}, &output)
+
+	if !strings.Contains(output.String(), "--score must be an integer") {
+		t.Fatalf("unexpected output: %s", output.String())
+	}
+}
+
+func TestRunJWXTReportsCorruptSession(t *testing.T) {
+	sessionPath := filepath.Join(t.TempDir(), "session.json")
+	if err := os.WriteFile(sessionPath, []byte("{"), 0600); err != nil {
+		t.Fatalf("write corrupt session: %v", err)
+	}
+	var output strings.Builder
+
+	runJWXT([]string{"status", "--session-path", sessionPath}, &output)
+
+	if !strings.Contains(output.String(), "parse JWXT session") {
+		t.Fatalf("unexpected output: %s", output.String())
+	}
+}
+
+func TestRunJWXTLogoutRemovesCorruptSession(t *testing.T) {
+	sessionPath := filepath.Join(t.TempDir(), "session.json")
+	if err := os.WriteFile(sessionPath, []byte("{"), 0600); err != nil {
+		t.Fatalf("write corrupt session: %v", err)
+	}
+	var output strings.Builder
+
+	runJWXT([]string{"logout", "--session-path", sessionPath}, &output)
+
+	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {
+		t.Fatalf("session still exists or stat failed: %v", err)
+	}
+	if !strings.Contains(output.String(), `"logged_in": false`) {
+		t.Fatalf("unexpected output: %s", output.String())
+	}
+}
+
+func TestRunJWXTLogoutReportsRemovalFailure(t *testing.T) {
+	sessionPath := filepath.Join(t.TempDir(), "session")
+	if err := os.Mkdir(sessionPath, 0700); err != nil {
+		t.Fatalf("create session directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionPath, "child"), []byte("x"), 0600); err != nil {
+		t.Fatalf("make session directory non-empty: %v", err)
+	}
+	var output strings.Builder
+
+	runJWXT([]string{"logout", "--session-path", sessionPath}, &output)
+
+	if !strings.Contains(output.String(), "clear JWXT session") {
+		t.Fatalf("unexpected output: %s", output.String())
+	}
+}
+
+func TestEvaluationPresetRejectsInvalidOptionScore(t *testing.T) {
+	detail := &evaluationDetail{
+		IDs:     []string{"indicator"},
+		Options: map[string][]payload{"indicator": {{"option_id": "good", "score": "invalid"}}},
+	}
+
+	_, _, err := evaluationPreset(detail, 89)
+
+	if err == nil || !strings.Contains(err.Error(), "invalid score") {
+		t.Fatalf("evaluationPreset() error = %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
+func TestStatusKeepsLoginWhenProfileEnrichmentFails(t *testing.T) {
+	client, err := newJWXTClient(filepath.Join(t.TempDir(), "session.json"), "")
+	if err != nil {
+		t.Fatalf("create JWXT client: %v", err)
+	}
+	client.meta.Username = "student"
+	client.jar.SetCookies(jwxtOriginURL(), []*http.Cookie{{Name: "JSESSIONID", Value: "active"}})
+	client.http.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/jsxsd/framework/xsMain.jsp" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("教学一体化服务平台")),
+				Header:     make(http.Header),
+				Request:    request,
+			}, nil
+		}
+		return nil, errors.New("profile unavailable")
+	})
+
+	result, err := client.status()
+
+	if err != nil || result["logged_in"] != true {
+		t.Fatalf("status result = %#v, error = %v", result, err)
+	}
+	if warning, ok := result["profile_warning"].(string); !ok || !strings.Contains(warning, "资料补全") {
+		t.Fatalf("profile warning = %#v", result["profile_warning"])
 	}
 }

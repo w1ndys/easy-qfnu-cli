@@ -17,7 +17,7 @@ go run ./cmd/easy-qfnu --help
 
 正式版本启动时会强制读取公开 Release 的 `manifest.json`，以 Release 标签作为 Release、CLI 和 skill 的统一版本来源。发现 CLI 版本过期或清单不可用时，CLI 返回 `update_required: true` 并停止业务命令；更新 skill 后需要重新读取 `SKILL.md` 再重试。
 
-评教提交暂时只保留预览安全门；在完成 Go 版评教协议适配前，带 `--confirm` 的命令会明确返回不可用错误，不会发送 POST。
+评教默认只生成预览；在当前批次、课程、教师和分数经过明确确认后，追加 `--confirm` 会提交评教 POST。若响应不明确，CLI 会停止后续提交，并要求登录教务系统官方页面核对。
 
 ## 匿名使用统计
 

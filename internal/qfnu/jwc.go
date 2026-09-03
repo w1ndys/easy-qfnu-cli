@@ -68,8 +68,7 @@ func requestJWC(method, target string, body io.Reader, headers map[string]string
 	if err != nil {
 		return "", "", err
 	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
+	b, err := readResponseBody(resp)
 	if err != nil {
 		return "", resp.Request.URL.String(), err
 	}
@@ -164,13 +163,21 @@ func listJWC(args []string) (payload, error) {
 			if i+1 >= len(args) {
 				return nil, errors.New("--page requires a value")
 			}
-			page, _ = strconv.Atoi(args[i+1])
+			parsed, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				return nil, errors.New("--page must be an integer")
+			}
+			page = parsed
 			i++
 		case "--limit":
 			if i+1 >= len(args) {
 				return nil, errors.New("--limit requires a value")
 			}
-			limit, _ = strconv.Atoi(args[i+1])
+			parsed, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				return nil, errors.New("--limit must be an integer")
+			}
+			limit = parsed
 			i++
 		default:
 			return nil, fmt.Errorf("unknown option: %s", args[i])
@@ -206,13 +213,21 @@ func searchJWC(args []string) (payload, error) {
 			if i+1 >= len(args) {
 				return nil, errors.New("--page requires a value")
 			}
-			page, _ = strconv.Atoi(args[i+1])
+			parsed, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				return nil, errors.New("--page must be an integer")
+			}
+			page = parsed
 			i++
 		case "--limit":
 			if i+1 >= len(args) {
 				return nil, errors.New("--limit requires a value")
 			}
-			limit, _ = strconv.Atoi(args[i+1])
+			parsed, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				return nil, errors.New("--limit must be an integer")
+			}
+			limit = parsed
 			i++
 		default:
 			return nil, fmt.Errorf("unknown option: %s", args[i])
@@ -237,7 +252,14 @@ func searchJWC(args []string) (payload, error) {
 	}
 	totalPages := 1
 	if m := pageRE.FindStringSubmatch(cleanHTML(raw)); len(m) > 1 {
-		totalPages, _ = strconv.Atoi(m[1])
+		parsed, err := strconv.Atoi(m[1])
+		if err != nil {
+			return nil, &jwcError{message: "invalid JWC pagination metadata", hint: "请稍后重试"}
+		}
+		if parsed < 1 {
+			return nil, &jwcError{message: "invalid JWC pagination metadata", hint: "请稍后重试"}
+		}
+		totalPages = parsed
 	}
 	return success("jwc", payload{"query": strings.TrimSpace(keyword), "page": page, "limit": limit, "total": nil, "total_pages": totalPages, "count": len(rows), "items": rows, "url": finalURL}), nil
 }
@@ -331,6 +353,8 @@ func runJWC(args []string, out io.Writer) int {
 }
 
 func usageJWC(w io.Writer) int {
-	fmt.Fprintln(w, "Usage: easy-qfnu jwc <list|get|search|channels> [options]")
+	if _, err := fmt.Fprintln(w, "Usage: easy-qfnu jwc <list|get|search|channels> [options]"); err != nil {
+		return 1
+	}
 	return 2
 }

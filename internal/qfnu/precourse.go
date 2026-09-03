@@ -1,7 +1,6 @@
 package qfnu
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +15,7 @@ var (
 	precourseEndpoint    = defaultPrecourseEndpoint
 	precourseHTTPClient  = &http.Client{Timeout: 30 * time.Second}
 	reportPrecourseUsage = func(operation, status string) {
+		// Telemetry is a side effect; its failure must not change a query result.
 		_ = reportAnonymousEvent("precourse."+operation, status)
 	}
 )
@@ -36,8 +36,7 @@ var precourseSearchOptions = map[string]string{
 
 func runPrecourse(args []string, out io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" {
-		printPrecourseUsage(out)
-		return 2
+		return printPrecourseUsage(out)
 	}
 
 	switch args[0] {
@@ -55,13 +54,17 @@ func runPrecourse(args []string, out io.Writer) int {
 	}
 }
 
-func printPrecourseUsage(out io.Writer) {
-	fmt.Fprintln(out, "Usage: easy-qfnu precourse <search|meta|popular>")
-	fmt.Fprintln(out, "  easy-qfnu precourse search [keyword] [--course-code value] [--course-name value] [--teacher-name value]")
-	fmt.Fprintln(out, "    [--course-nature value] [--course-attr value] [--college value] [--schedule-time value]")
-	fmt.Fprintln(out, "    [--location value] [--campus value]")
-	fmt.Fprintln(out, "  easy-qfnu precourse meta")
-	fmt.Fprintln(out, "  easy-qfnu precourse popular --field <teacherName|courseName|college>")
+func printPrecourseUsage(out io.Writer) int {
+	usage := "Usage: easy-qfnu precourse <search|meta|popular>\n" +
+		"  easy-qfnu precourse search [keyword] [--course-code value] [--course-name value] [--teacher-name value]\n" +
+		"    [--course-nature value] [--course-attr value] [--college value] [--schedule-time value]\n" +
+		"    [--location value] [--campus value]\n" +
+		"  easy-qfnu precourse meta\n" +
+		"  easy-qfnu precourse popular --field <teacherName|courseName|college>\n"
+	if _, err := fmt.Fprint(out, usage); err != nil {
+		return 1
+	}
+	return 2
 }
 
 func runPrecourseSearch(args []string, out io.Writer) int {
@@ -70,8 +73,7 @@ func runPrecourseSearch(args []string, out io.Writer) int {
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		if arg == "--help" {
-			printPrecourseUsage(out)
-			return 2
+			return printPrecourseUsage(out)
 		}
 		if field, ok := precourseSearchOptions[arg]; ok {
 			if index+1 >= len(args) {
@@ -112,8 +114,7 @@ func runPrecoursePopular(args []string, out io.Writer) int {
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		if arg == "--help" {
-			printPrecourseUsage(out)
-			return 2
+			return printPrecourseUsage(out)
 		}
 		if arg != "--field" {
 			return writePrecourseFailure(out, "unknown option: "+arg, "使用 --field 指定统计字段")
@@ -153,10 +154,8 @@ func requestPrecourse(operation string, values url.Values, out io.Writer) int {
 		reportPrecourseUsage(operation, "failure")
 		return writePrecourseFailure(out, "预选课查询请求失败", "请检查网络和远程服务后重试")
 	}
-	defer response.Body.Close()
-
 	var body map[string]any
-	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+	if err := decodeResponseJSON(response, &body); err != nil {
 		reportPrecourseUsage(operation, "failure")
 		return writePrecourseFailure(out, "预选课服务返回了无效 JSON", "请稍后重试")
 	}

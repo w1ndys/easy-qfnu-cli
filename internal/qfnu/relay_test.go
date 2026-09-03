@@ -82,7 +82,10 @@ func TestRelayRankUsesGETAndQueryParameters(t *testing.T) {
 }
 
 func TestRelayRejectsMissingSessionAndCustomAction(t *testing.T) {
-	client := newJWXTClient(t.TempDir()+"/session.json", "")
+	client, err := newJWXTClient(t.TempDir()+"/session.json", "")
+	if err != nil {
+		t.Fatalf("create JWXT client: %v", err)
+	}
 	var output strings.Builder
 	if code := runJWXTRelay("feedback", client, strings.NewReader(`{}`), &output); code == 0 {
 		t.Fatal("relay without session unexpectedly succeeded")

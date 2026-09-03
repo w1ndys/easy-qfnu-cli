@@ -82,8 +82,7 @@ func runJWXTRelay(action string, client *jwxtClient, input io.Reader, out io.Wri
 	if err != nil {
 		return relayFailure(out, "relay request failed", "请检查网络和远程服务后重试")
 	}
-	defer response.Body.Close()
-	data, readErr := io.ReadAll(response.Body)
+	data, readErr := readResponseBody(response)
 	if readErr != nil {
 		return relayFailure(out, "failed to read relay response", "请稍后重试")
 	}
@@ -150,7 +149,7 @@ func relayIdempotencyKey(body []byte) string {
 }
 
 func (c *jwxtClient) cookieHeader() string {
-	cookies := c.jar.Cookies(mustURL(jwxtBase))
+	cookies := c.jar.Cookies(jwxtOriginURL())
 	values := make([]string, 0, len(cookies))
 	for _, cookie := range cookies {
 		if strings.TrimSpace(cookie.Name) != "" {

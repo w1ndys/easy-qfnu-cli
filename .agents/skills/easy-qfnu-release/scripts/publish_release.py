@@ -15,7 +15,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 TARGETS = (
     ("linux", "amd64", ""),
     ("linux", "arm64", ""),
@@ -54,7 +53,7 @@ def command_text(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
 ) -> str:
-    result = subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True)
+    result = subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True, check=False)
     if result.returncode != 0:
         details = (result.stderr or result.stdout).strip()
         raise ReleaseError(f"命令失败: {' '.join(command)}\n{details}")
@@ -62,7 +61,7 @@ def command_text(
 
 
 def command(command: list[str], cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
-    result = subprocess.run(command, cwd=cwd, env=env)
+    result = subprocess.run(command, cwd=cwd, env=env, check=False)
     if result.returncode != 0:
         raise ReleaseError(f"命令失败（退出码 {result.returncode}）: {' '.join(command)}")
 
@@ -86,6 +85,7 @@ def go_candidates() -> list[str]:
             [go_path, "env", "GOPATH"],
             text=True,
             capture_output=True,
+            check=False,
         )
         if result.returncode == 0:
             for root in result.stdout.strip().split(os.pathsep):
@@ -103,7 +103,7 @@ def resolve_go() -> tuple[str, tuple[int, ...]]:
         executable = shutil.which(candidate)
         if not executable:
             continue
-        result = subprocess.run([executable, "version"], text=True, capture_output=True)
+        result = subprocess.run([executable, "version"], text=True, capture_output=True, check=False)
         if result.returncode != 0:
             errors.append(f"{candidate}: 无法读取版本")
             continue
@@ -115,8 +115,8 @@ def resolve_go() -> tuple[str, tuple[int, ...]]:
             errors.append(f"{candidate}: 需要 Go 1.26.2+，实际为 go{'.'.join(map(str, version))}")
             continue
 
-        goroot_result = subprocess.run([executable, "env", "GOROOT"], text=True, capture_output=True)
-        gomodcache_result = subprocess.run([executable, "env", "GOMODCACHE"], text=True, capture_output=True)
+        goroot_result = subprocess.run([executable, "env", "GOROOT"], text=True, capture_output=True, check=False)
+        gomodcache_result = subprocess.run([executable, "env", "GOMODCACHE"], text=True, capture_output=True, check=False)
         if goroot_result.returncode != 0 or gomodcache_result.returncode != 0:
             errors.append(f"{candidate}: 无法读取 GOROOT/GOMODCACHE")
             continue
@@ -181,6 +181,7 @@ def release_exists(public_repo: str, version: str) -> bool:
         ["gh", "release", "view", version, "--repo", public_repo],
         text=True,
         capture_output=True,
+        check=False,
     )
     if result.returncode == 0:
         return True
@@ -206,6 +207,7 @@ def previous_release_tag(public_repo: str, current_version: str) -> str | None:
         ],
         text=True,
         capture_output=True,
+        check=False,
     )
     if result.returncode != 0:
         raise ReleaseError(f"无法读取历史 Release: {(result.stderr or result.stdout).strip()}")
@@ -248,6 +250,7 @@ def git_subjects(repo: Path | None, previous_tag: str | None) -> list[str]:
             cwd=repo,
             text=True,
             capture_output=True,
+            check=False,
         ).returncode == 0
         if not available:
             return []
@@ -258,6 +261,7 @@ def git_subjects(repo: Path | None, previous_tag: str | None) -> list[str]:
         cwd=repo,
         text=True,
         capture_output=True,
+        check=False,
     )
     if result.returncode != 0:
         return []
@@ -356,6 +360,7 @@ def remote_tag_exists(repo: Path, version: str) -> bool:
         cwd=repo,
         text=True,
         capture_output=True,
+        check=False,
     )
     if result.returncode == 0:
         return True
@@ -465,6 +470,7 @@ def publish(
             cwd=repo,
             text=True,
             capture_output=True,
+            check=False,
         ).returncode == 0
         remote_tag = remote_tag_exists(repo, version)
     if (local_tag or remote_tag or existing_release) and not replace:
