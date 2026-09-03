@@ -1,6 +1,7 @@
 package qfnu
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -232,4 +233,55 @@ func TestStatusKeepsLoginWhenProfileEnrichmentFails(t *testing.T) {
 	if warning, ok := result["profile_warning"].(string); !ok || !strings.Contains(warning, "资料补全") {
 		t.Fatalf("profile warning = %#v", result["profile_warning"])
 	}
+}
+
+func TestSessionPersistsCookiesForScopedPaths(t *testing.T) {
+	sessionPath := filepath.Join(t.TempDir(), "session.json")
+	client, err := newJWXTClient(sessionPath, "")
+	if err != nil {
+		t.Fatalf("create JWXT client: %v", err)
+	}
+	client.jar.SetCookies(jwxtCookieURL("/"), []*http.Cookie{{Name: "JSESSIONID", Value: "root", Path: "/"}})
+	client.jar.SetCookies(jwxtCookieURL("/jsxsd/framework/xsMain.jsp"), []*http.Cookie{{Name: "JSESSIONID", Value: "jsxsd", Path: "/jsxsd"}})
+	if err := client.persist(payload{}); err != nil {
+		t.Fatalf("persist session: %v", err)
+	}
+
+	data, err := os.ReadFile(sessionPath)
+	if err != nil {
+		t.Fatalf("read session: %v", err)
+	}
+	var saved sessionFile
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatalf("decode session: %v", err)
+	}
+	paths := make(map[string]string, len(saved.Cookies))
+	for _, cookie := range saved.Cookies {
+		paths[cookie.Path] = cookie.Value
+	}
+	if paths["/"] != "root" || paths["/jsxsd"] != "jsxsd" {
+		t.Fatalf("persisted cookie scopes = %#v", paths)
+	}
+
+	loaded, err := newJWXTClient(sessionPath, "")
+	if err != nil {
+		t.Fatalf("create loading client: %v", err)
+	}
+	if err := loaded.load(); err != nil {
+		t.Fatalf("load session: %v", err)
+	}
+	rootCookies := loaded.jar.Cookies(jwxtCookieURL("/"))
+	jsxsdCookies := loaded.jar.Cookies(jwxtCookieURL("/jsxsd/framework/xsMain.jsp"))
+	if cookieValue(rootCookies, "JSESSIONID") != "root" || cookieValue(jsxsdCookies, "JSESSIONID") != "jsxsd" {
+		t.Fatalf("loaded cookie values = root:%q jsxsd:%q", cookieValue(rootCookies, "JSESSIONID"), cookieValue(jsxsdCookies, "JSESSIONID"))
+	}
+}
+
+func cookieValue(cookies []*http.Cookie, name string) string {
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			return cookie.Value
+		}
+	}
+	return ""
 }

@@ -44,6 +44,11 @@ type sessionCookie struct {
 	Secure                    bool
 }
 
+type jwxtCookieScope struct {
+	target *url.URL
+	path   string
+}
+
 type jwxtClient struct {
 	sessionPath string
 	ocrURL      string
@@ -125,6 +130,31 @@ func jwxtOriginURL() *url.URL {
 	return &url.URL{Scheme: "http", Host: "zhjw.qfnu.edu.cn"}
 }
 
+// JWXT may issue different session cookies for / and /jsxsd. Querying each
+// scope preserves both values when a session is reloaded by a new process.
+func jwxtCookieScopes() []jwxtCookieScope {
+	origin := jwxtOriginURL()
+	login := *origin
+	login.Path = "/Logon.do"
+	jsxsd := *origin
+	jsxsd.Path = "/jsxsd/framework/xsMain.jsp"
+	return []jwxtCookieScope{
+		{target: origin, path: "/"},
+		{target: &login, path: "/Logon.do"},
+		{target: &jsxsd, path: "/jsxsd"},
+	}
+}
+
+func jwxtCookieURL(path string) *url.URL {
+	origin := jwxtOriginURL()
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "/"
+	}
+	origin.Path = path
+	return origin
+}
+
 func (c *jwxtClient) load() error {
 	data, err := os.ReadFile(c.sessionPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -140,7 +170,7 @@ func (c *jwxtClient) load() error {
 	c.meta = saved
 	for _, item := range saved.Cookies {
 		cookie := &http.Cookie{Name: item.Name, Value: item.Value, Path: item.Path, Domain: item.Domain, Expires: item.Expires, Secure: item.Secure}
-		c.jar.SetCookies(jwxtOriginURL(), []*http.Cookie{cookie})
+		c.jar.SetCookies(jwxtCookieURL(item.Path), []*http.Cookie{cookie})
 	}
 	return nil
 }
@@ -181,10 +211,7 @@ func (c *jwxtClient) persist(fields payload) error {
 			return fmt.Errorf("unsupported session field: %s", key)
 		}
 	}
-	c.meta.Cookies = nil
-	for _, item := range c.jar.Cookies(jwxtOriginURL()) {
-		c.meta.Cookies = append(c.meta.Cookies, sessionCookie{Name: item.Name, Value: item.Value, Path: item.Path, Domain: item.Domain, Expires: item.Expires, Secure: item.Secure})
-	}
+	c.meta.Cookies = c.persistedCookies()
 	c.meta.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := os.MkdirAll(filepath.Dir(c.sessionPath), 0700); err != nil {
 		return err
@@ -194,6 +221,27 @@ func (c *jwxtClient) persist(fields payload) error {
 		return err
 	}
 	return os.WriteFile(c.sessionPath, append(data, '\n'), 0600)
+}
+
+// persistedCookies keeps cookies from each relevant URL scope and removes
+// duplicate name/value pairs that are visible from multiple scopes.
+func (c *jwxtClient) persistedCookies() []sessionCookie {
+	cookies := make([]sessionCookie, 0)
+	seen := make(map[string]bool)
+	for _, scope := range jwxtCookieScopes() {
+		for _, item := range c.jar.Cookies(scope.target) {
+			key := item.Name + "\x00" + item.Value
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			cookies = append(cookies, sessionCookie{
+				Name: item.Name, Value: item.Value, Path: scope.path, Domain: item.Domain,
+				Expires: item.Expires, Secure: item.Secure,
+			})
+		}
+	}
+	return cookies
 }
 
 func (c *jwxtClient) clear() error {
