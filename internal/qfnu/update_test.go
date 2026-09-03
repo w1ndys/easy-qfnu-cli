@@ -34,7 +34,9 @@ func TestCheckUpdatesUsesReleaseVersion(t *testing.T) {
 	version = "v2026.08.30.14"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"release_version":"v2026.08.30.15","cli_version":"v2026.08.30.15"}`))
+		if _, err := w.Write([]byte(`{"release_version":"v2026.08.30.15","cli_version":"v2026.08.30.15"}`)); err != nil {
+			t.Errorf("write newer manifest: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 	updateManifestURL = server.URL
@@ -67,7 +69,9 @@ func TestCheckUpdatesAcceptsMatchingReleaseWithoutSkillDirectory(t *testing.T) {
 	version = "v2026.08.30.14"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"release_version":"v2026.08.30.14","cli_version":"v2026.08.30.14","skill_version":"v0.0.0"}`))
+		if _, err := w.Write([]byte(`{"release_version":"v2026.08.30.14","cli_version":"v2026.08.30.14","skill_version":"v0.0.0"}`)); err != nil {
+			t.Errorf("write matching manifest: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 	updateManifestURL = server.URL

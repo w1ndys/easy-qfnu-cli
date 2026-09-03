@@ -16,11 +16,17 @@ func TestRelayFeedbackSendsJSONAndSessionCookie(t *testing.T) {
 	var receivedCookie string
 	var receivedKey string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedBody, _ = io.ReadAll(r.Body)
+		var err error
+		receivedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read feedback body: %v", err)
+		}
 		receivedCookie = r.Header.Get("X-QFNU-JWXT-Cookie")
 		receivedKey = r.Header.Get("Idempotency-Key")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":"OK","data":{"submitted":true}}`))
+		if _, err := w.Write([]byte(`{"code":"OK","data":{"submitted":true}}`)); err != nil {
+			t.Errorf("write feedback response: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 	oldTarget := relayTargets["feedback"]
@@ -55,9 +61,15 @@ func TestRelayRankUsesGETAndQueryParameters(t *testing.T) {
 	var body []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		method, path, rawQuery = r.Method, r.URL.Path, r.URL.RawQuery
-		body, _ = io.ReadAll(r.Body)
+		var err error
+		body, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read rank body: %v", err)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":"OK","data":{"class_rank":1}}`))
+		if _, err := w.Write([]byte(`{"code":"OK","data":{"class_rank":1}}`)); err != nil {
+			t.Errorf("write rank response: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 	oldTarget := relayTargets["rank"]
@@ -106,7 +118,9 @@ func TestRelayRejectsMissingSessionAndCustomAction(t *testing.T) {
 func TestRelayPropagatesRemoteHTTPFailureAsNonZero(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"code":"INVALID_REQUEST","data":null}`))
+		if _, err := w.Write([]byte(`{"code":"INVALID_REQUEST","data":null}`)); err != nil {
+			t.Errorf("write failure response: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 	oldTarget := relayTargets["rank"]

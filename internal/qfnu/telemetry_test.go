@@ -68,7 +68,10 @@ func TestReportLoginSuccessKeepsFailureSilent(t *testing.T) {
 	if feature != "jwxt.login" || status != "success" {
 		t.Fatalf("reported %q/%q", feature, status)
 	}
-	notice, _ := result["telemetry_notice"].(string)
+	notice, ok := result["telemetry_notice"].(string)
+	if !ok {
+		t.Fatalf("telemetry notice type = %T", result["telemetry_notice"])
+	}
 	if !strings.Contains(notice, "不含学号、姓名、Cookie") {
 		t.Fatalf("unexpected telemetry notice: %q", notice)
 	}

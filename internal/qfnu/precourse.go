@@ -3,22 +3,16 @@ package qfnu
 import (
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
-const defaultPrecourseEndpoint = "https://precourse.easy-qfnu.top/v1/precourses"
-
-var (
-	precourseEndpoint    = defaultPrecourseEndpoint
-	precourseHTTPClient  = &http.Client{Timeout: 30 * time.Second}
-	reportPrecourseUsage = func(operation, status string) {
-		// Telemetry is a side effect; its failure must not change a query result.
-		_ = reportAnonymousEvent("precourse."+operation, status)
+var reportPrecourseUsage = func(operation, status string) {
+	// Telemetry is a side effect; its failure must not change a query result.
+	if err := reportAnonymousEvent("precourse."+operation, status); err != nil {
+		return
 	}
-)
+}
 
 var precourseSearchOptions = map[string]string{
 	"--q":             "q",
@@ -135,58 +129,48 @@ func runPrecoursePopular(args []string, out io.Writer) int {
 }
 
 func requestPrecourse(operation string, values url.Values, out io.Writer) int {
-	target, err := url.Parse(strings.TrimRight(precourseEndpoint, "/") + "/" + operation)
-	if err != nil {
-		return writePrecourseFailure(out, "无法构造预选课服务地址", "请稍后重试")
-	}
-	if values != nil {
-		target.RawQuery = values.Encode()
-	}
-
-	req, err := http.NewRequest(http.MethodGet, target.String(), nil)
-	if err != nil {
-		return writePrecourseFailure(out, "无法构造预选课请求", "请稍后重试")
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "easy-qfnu/"+version)
-	response, err := precourseHTTPClient.Do(req)
-	if err != nil {
-		reportPrecourseUsage(operation, "failure")
-		return writePrecourseFailure(out, "预选课查询请求失败", "请检查网络和远程服务后重试")
-	}
-	var body map[string]any
-	if err := decodeResponseJSON(response, &body); err != nil {
-		reportPrecourseUsage(operation, "failure")
-		return writePrecourseFailure(out, "预选课服务返回了无效 JSON", "请稍后重试")
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		message := fmt.Sprintf("预选课服务返回 HTTP %d", response.StatusCode)
-		if remoteMessage, ok := body["message"].(string); ok && strings.TrimSpace(remoteMessage) != "" {
-			message = strings.TrimSpace(remoteMessage)
+	response, clientErr := queryPrecourse(operation, values)
+	if clientErr != nil {
+		if clientErr.reportUsage {
+			reportPrecourseUsage(operation, "failure")
 		}
+		return writePrecourseFailure(out, clientErr.message, clientErr.hint)
+	}
+	if response.status < 200 || response.status >= 300 {
+		message := precourseResponseMessage(response.body, fmt.Sprintf("预选课服务返回 HTTP %d", response.status))
 		reportPrecourseUsage(operation, "failure")
 		return writePrecourseFailure(out, message, "请稍后重试")
 	}
-	if !isPrecourseSuccessCode(body["code"]) {
-		message := "预选课服务拒绝了查询请求"
-		if remoteMessage, ok := body["message"].(string); ok && strings.TrimSpace(remoteMessage) != "" {
-			message = strings.TrimSpace(remoteMessage)
-		}
+	if !isPrecourseSuccessCode(response.body["code"]) {
+		message := precourseResponseMessage(response.body, "预选课服务拒绝了查询请求")
 		reportPrecourseUsage(operation, "failure")
 		return writePrecourseFailure(out, message, "请检查查询条件后重试")
 	}
+	result := precourseResult(operation, response)
+	reportPrecourseUsage(operation, "success")
+	return writeJSON(out, success("precourse", result))
+}
+
+func precourseResponseMessage(body map[string]any, fallback string) string {
+	message, ok := body["message"].(string)
+	if !ok || strings.TrimSpace(message) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(message)
+}
+
+func precourseResult(operation string, response precourseResponse) payload {
 	result := payload{}
-	if data, ok := body["data"].(map[string]any); ok {
+	if data, ok := response.body["data"].(map[string]any); ok {
 		for key, value := range data {
 			result[key] = value
 		}
 	} else {
-		result["data"] = body["data"]
+		result["data"] = response.body["data"]
 	}
 	result["operation"] = operation
-	result["url"] = target.String()
-	reportPrecourseUsage(operation, "success")
-	return writeJSON(out, success("precourse", result))
+	result["url"] = response.url
+	return result
 }
 
 func nonEmptyValues(values url.Values) url.Values {

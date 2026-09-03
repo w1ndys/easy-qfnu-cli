@@ -81,7 +81,9 @@ func TestRequestFollowsSameOriginRedirect(t *testing.T) {
 			if r.Method != http.MethodGet {
 				t.Errorf("redirected method = %s, want GET", r.Method)
 			}
-			_, _ = w.Write([]byte("authenticated"))
+			if _, err := w.Write([]byte("authenticated")); err != nil {
+				t.Errorf("write authenticated response: %v", err)
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -103,7 +105,9 @@ func TestRequestStopsCrossOriginRedirect(t *testing.T) {
 	var destinationHits int
 	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		destinationHits++
-		_, _ = w.Write([]byte("must not follow"))
+		if _, err := w.Write([]byte("must not follow")); err != nil {
+			t.Errorf("write destination response: %v", err)
+		}
 	}))
 	t.Cleanup(destination.Close)
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
