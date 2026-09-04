@@ -67,6 +67,21 @@ func (c telemetryClient) send(feature, status string) error {
 	return nil
 }
 
+// usageStatus 把命令错误映射为匿名统计的 success/failure 状态。
+func usageStatus(err error) string {
+	if err != nil {
+		return "failure"
+	}
+	return "success"
+}
+
+// reportUsage 上报匿名功能使用结果；旁路能力，任何失败都不改变命令结果。
+var reportUsage = func(feature, status string) {
+	if err := reportAnonymousEvent(feature, status); err != nil {
+		return
+	}
+}
+
 func reportLoginSuccess(result payload) {
 	result["telemetry_notice"] = "已触发匿名登录时间上报；不含学号、姓名、Cookie 或其他身份信息"
 	if err := reportAnonymousEvent("jwxt.login", "success"); err != nil {

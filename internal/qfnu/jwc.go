@@ -329,14 +329,18 @@ func runJWC(args []string, out io.Writer) int {
 	}
 	var result payload
 	var err error
+	feature := ""
 	switch args[0] {
 	case "channels":
 		result = channelsJWC()
 	case "list":
+		feature = "list"
 		result, err = listJWC(args[1:])
 	case "search":
+		feature = "search"
 		result, err = searchJWC(args[1:])
 	case "get":
+		feature = "get"
 		if len(args) < 2 {
 			err = errors.New("get requires a URL or info path")
 		} else {
@@ -344,6 +348,9 @@ func runJWC(args []string, out io.Writer) int {
 		}
 	default:
 		err = fmt.Errorf("unknown action: %s", args[0])
+	}
+	if feature != "" {
+		reportUsage("jwc."+feature, usageStatus(err))
 	}
 	if err != nil {
 		if e, ok := err.(*jwcError); ok {

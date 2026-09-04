@@ -59,12 +59,22 @@ func runJWXTRelay(action string, client *jwxtClient, input io.Reader, out io.Wri
 	}
 	status, data, clientErr := doRelayRequest(request)
 	if clientErr != nil {
+		reportUsage("relay."+action, "failure")
 		if clientErr.readingResponse {
 			return relayFailure(out, "failed to read relay response", "请稍后重试")
 		}
 		return relayFailure(out, "relay request failed", "请检查网络和远程服务后重试")
 	}
+	reportUsage("relay."+action, usageStatus(relayStatusError(status)))
 	return writeRelayResponse(status, data, out)
+}
+
+// relayStatusError 把中继 HTTP 状态映射为命令错误；2xx 视为成功。
+func relayStatusError(status int) error {
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("relay HTTP %d", status)
+	}
+	return nil
 }
 
 func readRelayInput(input io.Reader) ([]byte, *relayCommandError) {

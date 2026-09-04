@@ -24,7 +24,9 @@ Commands:
   easy-qfnu jwxt evaluations | evaluate [--score 89] [--course ID] [--confirm]
   easy-qfnu jwxt status | logout | forget-credentials | relay <feedback|recommendation|rank>
   version
-登录成功后会上报匿名事件时间、CLI 版本、操作系统和架构；不含学号、姓名或 Cookie，上报失败不影响登录。
+在线查询与提交功能（jwc、freshman、precourse、jwxt 登录成功/成绩/课表/评教、relay）执行后会
+上报匿名功能事件：功能名、成功状态、时间、CLI 版本、操作系统和架构；不含学号、姓名、查询内容
+或 Cookie；登录失败与纯本地操作（captcha/status/logout）不上报，上报失败不影响命令结果。
 
 Prints JSON. Most commands are read-only; jwxt evaluate submits only with explicit --confirm.
 `

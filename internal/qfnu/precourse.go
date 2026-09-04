@@ -9,9 +9,7 @@ import (
 
 var reportPrecourseUsage = func(operation, status string) {
 	// Telemetry is a side effect; its failure must not change a query result.
-	if err := reportAnonymousEvent("precourse."+operation, status); err != nil {
-		return
-	}
+	reportUsage("precourse."+operation, status)
 }
 
 var precourseSearchOptions = map[string]string{

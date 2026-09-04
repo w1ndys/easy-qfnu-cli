@@ -22,12 +22,15 @@ func runFreshman(args []string, out io.Writer) int {
 	}
 	search, err := parseFreshmanSearch(args[1:])
 	if err != nil {
+		reportUsage("freshman.search", "failure")
 		return writeJSON(out, failure("freshman", err.Error(), ""))
 	}
 	result, queryErr := queryFreshman(search)
 	if queryErr != nil {
+		reportUsage("freshman.search", "failure")
 		return writeJSON(out, failure("freshman", queryErr.message, queryErr.hint))
 	}
+	reportUsage("freshman.search", "success")
 	return writeJSON(out, result)
 }
 

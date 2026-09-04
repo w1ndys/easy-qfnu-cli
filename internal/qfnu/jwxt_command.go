@@ -238,8 +238,22 @@ func loginJWXT(client *jwxtClient, command *jwxtCommand) (payload, error) {
 	return client.login(command.username, command.password, command.captcha, command.save)
 }
 
+// reportableJWXTActions 是需要匿名统计的在线功能；captcha/status/logout 等
+// 本地或辅助操作不上报。login 的成功事件在 reportLoginSuccess 中单独处理，
+// 失败不上报（issue #2 语义：登录失败不发送登录成功事件，也不上报失败）。
+func reportableJWXTActions(action string) bool {
+	switch action {
+	case "grades", "schedule", "evaluations", "evaluate":
+		return true
+	}
+	return false
+}
+
 func writeJWXTCommandResult(action string, result payload, err error, out io.Writer) int {
 	if err != nil {
+		if reportableJWXTActions(action) {
+			reportUsage("jwxt."+action, "failure")
+		}
 		if known, ok := err.(*jwxtError); ok {
 			result = failure("jwxt", known.message, known.hint)
 		} else {
@@ -249,6 +263,8 @@ func writeJWXTCommandResult(action string, result payload, err error, out io.Wri
 	}
 	if action == "login" {
 		reportLoginSuccess(result)
+	} else if reportableJWXTActions(action) {
+		reportUsage("jwxt."+action, "success")
 	}
 	return writeJSON(out, result)
 }

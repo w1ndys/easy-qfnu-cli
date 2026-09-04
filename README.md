@@ -21,7 +21,7 @@ go run ./cmd/easy-qfnu --help
 
 ## 匿名使用统计
 
-实际执行 `easy-qfnu jwxt login` 并成功后，或执行公开预选课查询后，CLI 会向 `https://hub.easy-qfnu.top/v1/telemetry/events` 上报匿名功能事件。字段仅包含事件时间、功能名、成功状态、CLI 版本、操作系统和 CPU 架构；不包含学号、姓名、查询关键词、课程数据、密码、验证码、Cookie、IP、设备 ID 或联系方式。统计服务不可用也不影响业务结果。
+在线查询与提交功能执行后，CLI 会向 `https://hub.easy-qfnu.top/v1/telemetry/events` 上报匿名功能事件，覆盖：`jwc` 通知列表/搜索/正文、新生题库搜索、公开预选课查询、`jwxt` 登录成功、成绩、课表、评教列表与确认提交、`relay` 反馈/推荐/排名查询。事件字段仅包含功能名、成功状态、事件时间、CLI 版本、操作系统和 CPU 架构；不包含学号、姓名、查询关键词、课程数据、密码、验证码、Cookie、IP、设备 ID 或联系方式。登录失败与纯本地操作（验证码、status、logout）不上报；统计服务不可用也不影响业务结果。
 
 
 ## 公开预选课查询
