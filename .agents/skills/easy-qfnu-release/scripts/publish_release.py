@@ -12,7 +12,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 TARGETS = (
@@ -22,8 +21,8 @@ TARGETS = (
     ("darwin", "arm64", ""),
     ("windows", "amd64", ".exe"),
 )
-GO_TOOLCHAIN = "go1.26.8"
-MIN_GO_VERSION = (1, 26, 2)
+GO_TOOLCHAIN = "go1.27.1"
+MIN_GO_VERSION = (1, 27, 0)
 GARBLE_VERSION = "v0.17.0"
 GO_VERSION_RE = re.compile(r"(?<![A-Za-z])go(?P<version>[0-9]+(?:[.][0-9]+){1,2})(?![0-9])")
 VERSION_RE = re.compile(r"^v[0-9]{4}[.][0-9]{2}[.][0-9]{2}[.][0-9]{2}$")
@@ -389,6 +388,56 @@ def validate_repo(repo: Path) -> str:
     return parse_module(repo)
 
 
+def asset_names() -> list[str]:
+    """Deterministic release asset file names, checksums and manifest included."""
+    return [
+        f"easy-qfnu-{goos}-{goarch}{suffix}" for goos, goarch, suffix in TARGETS
+    ] + ["checksums.txt", "manifest.json"]
+
+
+def build_cache_dir(version: str) -> Path:
+    """Persistent per-version artifact cache, reused between dry-run and publish."""
+    root = os.environ.get("EASY_QFNU_CACHE_DIR")
+    base = Path(root).expanduser() if root else Path.home() / ".cache" / "easy-qfnu-release"
+    return base / version
+
+
+def source_commit(repo: Path) -> str:
+    return command_text(["git", "rev-parse", "HEAD"], cwd=repo)
+
+
+def write_build_info(cache_dir: Path, repo: Path, version: str, go_executable: str) -> None:
+    info = {
+        "version": version,
+        "source_commit": source_commit(repo),
+        "toolchain": os.path.realpath(go_executable),
+        "garble": GARBLE_VERSION,
+    }
+    (cache_dir / "build-info.json").write_text(
+        json.dumps(info, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def build_cache_fresh(cache_dir: Path, repo: Path, version: str, go_executable: str) -> bool:
+    """True when cached assets match the current version, source commit and toolchain."""
+    info_file = cache_dir / "build-info.json"
+    if not info_file.is_file():
+        return False
+    try:
+        info = json.loads(info_file.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return False
+    if (
+        info.get("version") != version
+        or info.get("source_commit") != source_commit(repo)
+        or info.get("toolchain") != os.path.realpath(go_executable)
+        or info.get("garble") != GARBLE_VERSION
+    ):
+        return False
+    return all((cache_dir / name).is_file() for name in asset_names())
+
+
 def build(
     repo: Path,
     module: str,
@@ -566,16 +615,22 @@ def main() -> int:
     print(notes, end="")
     print("模式: publish" if args.publish else "模式: dry-run")
 
-    with tempfile.TemporaryDirectory(prefix="easy-qfnu-release-") as temp:
-        assets = build(repo, module, args.version, Path(temp), go_command)
+    cache_dir = build_cache_dir(args.version)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    if build_cache_fresh(cache_dir, repo, args.version, go_command):
+        assets = [cache_dir / name for name in asset_names()]
+        print("构建产物（复用缓存，未重新交叉编译）:")
+    else:
+        assets = build(repo, module, args.version, cache_dir, go_command)
+        write_build_info(cache_dir, repo, args.version, go_command)
         print("构建产物:")
-        for asset in assets:
-            print(f"  {asset.name} ({asset.stat().st_size} bytes)")
-        if args.publish:
-            publish(repo, args.version, public_repo, assets, notes, args.replace, args.public_only)
-            print(f"发布完成: https://github.com/{public_repo}/releases/tag/{args.version}")
-        else:
-            print("dry-run 完成；获得用户明确确认后再加 --publish。")
+    for asset in assets:
+        print(f"  {asset.name} ({asset.stat().st_size} bytes)")
+    if args.publish:
+        publish(repo, args.version, public_repo, assets, notes, args.replace, args.public_only)
+        print(f"发布完成: https://github.com/{public_repo}/releases/tag/{args.version}")
+    else:
+        print("dry-run 完成；构建产物已缓存，确认发布时将直接复用，无需重新交叉编译。")
     return 0
 
 if __name__ == "__main__":
