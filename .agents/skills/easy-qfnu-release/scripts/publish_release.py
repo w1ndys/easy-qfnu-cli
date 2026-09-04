@@ -110,8 +110,9 @@ def resolve_go() -> tuple[str, tuple[int, ...]]:
         if version is None:
             errors.append(f"{candidate}: 版本格式无法识别")
             continue
-        if version[:2] != (1, 26) or version < MIN_GO_VERSION:
-            errors.append(f"{candidate}: 需要 Go 1.26.2+，实际为 go{'.'.join(map(str, version))}")
+        if version < MIN_GO_VERSION:
+            min_text = ".".join(map(str, MIN_GO_VERSION))
+            errors.append(f"{candidate}: 需要 Go {min_text}+，实际为 go{'.'.join(map(str, version))}")
             continue
 
         goroot_result = subprocess.run([executable, "env", "GOROOT"], text=True, capture_output=True, check=False)
