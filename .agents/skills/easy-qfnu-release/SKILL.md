@@ -19,7 +19,7 @@ description: Build and publish easy-qfnu date-tagged release binaries and fixed-
 
 ## 构建前置条件
 
-- 发布构建固定使用 `garble v0.17.0` 和独立的 `go1.27.1` 工具链。
+- 发布构建固定使用 garble `v0.17.1-0.20260828155325-29c42928bf8b`（master 构建，支持 go1.27.1；官方 v0.17.0 尚无 go1.27 链接器补丁）和独立的 `go1.27.1` 工具链。
 - Go 自动下载到 `GOMODCACHE` 的工具链不能用于 garble 的链接器补丁；如果默认命令未找到独立工具链，可设置 `EASY_QFNU_GO` 指向独立的 `go` 可执行文件。
 - 发布脚本把 garble 安装到构建缓存目录，不写入用户的 `GOPATH/bin`；这只影响构建工具，不改变最终 CLI 的安装位置。
 - 构建产物缓存在 `~/.cache/easy-qfnu-release/<版本>/`（可用 `EASY_QFNU_CACHE_DIR` 覆盖），缓存键为版本 + 源码提交 + 工具链 + garble 版本；dry-run 构建一次后，确认发布时直接复用，不重复交叉编译。源码提交、版本或工具链变化时自动重新构建。
