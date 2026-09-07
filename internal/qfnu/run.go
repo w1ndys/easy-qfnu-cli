@@ -17,6 +17,7 @@ Commands:
   easy-qfnu jwc channels
   easy-qfnu precourse search [keyword] [--course-code value] [--campus value]
   easy-qfnu precourse meta | popular --field <teacherName|courseName|college>
+  easy-qfnu recommendation search [--course value] [--teacher value] [--top 20]
   easy-qfnu jwxt captcha [--out 图片路径]
   easy-qfnu jwxt login [--username 学号] [--password 密码] [--captcha 识图结果]
   easy-qfnu jwxt grades [--semester 学年学期]
@@ -24,7 +25,7 @@ Commands:
   easy-qfnu jwxt evaluations | evaluate [--score 89] [--course ID] [--confirm]
   easy-qfnu jwxt status | logout | forget-credentials | relay <feedback|recommendation|rank>
   version
-在线查询与提交功能（jwc、freshman、precourse、jwxt 登录成功/成绩/课表/评教、relay）执行后会
+在线查询与提交功能（jwc、freshman、precourse、recommendation、jwxt 登录成功/成绩/课表/评教、relay）执行后会
 上报匿名功能事件：功能名、成功状态、时间、CLI 版本、操作系统和架构；不含学号、姓名、查询内容
 或 Cookie；登录失败与纯本地操作（captcha/status/logout）不上报，上报失败不影响命令结果。
 
@@ -59,6 +60,8 @@ func Run(args []string, out, errOut io.Writer) int {
 		code = runFreshman(args[1:], out)
 	case "precourse", "precourses":
 		code = runPrecourse(args[1:], out)
+	case "recommendation", "recommendations":
+		code = runRecommendation(args[1:], out)
 	case "jwxt":
 		code = runJWXT(args[1:], out)
 	default:

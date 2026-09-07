@@ -21,7 +21,7 @@ go run ./cmd/easy-qfnu --help
 
 ## 匿名使用统计
 
-在线查询与提交功能执行后，CLI 会向 `https://hub.easy-qfnu.top/v1/telemetry/events` 上报匿名功能事件，覆盖：`jwc` 通知列表/搜索/正文、新生题库搜索、公开预选课查询、`jwxt` 登录成功、成绩、课表、评教列表与确认提交、`relay` 反馈/推荐/排名查询。事件字段仅包含功能名、成功状态、事件时间、CLI 版本、操作系统和 CPU 架构；不包含学号、姓名、查询关键词、课程数据、密码、验证码、Cookie、IP、设备 ID 或联系方式。登录失败与纯本地操作（验证码、status、logout）不上报；统计服务不可用也不影响业务结果。
+在线查询与提交功能执行后，CLI 会向 `https://hub.easy-qfnu.top/v1/telemetry/events` 上报匿名功能事件，覆盖：`jwc` 通知列表/搜索/正文、新生题库搜索、公开预选课查询、公开推荐查询、`jwxt` 登录成功、成绩、课表、评教列表与确认提交、`relay` 反馈/推荐/排名查询。事件字段仅包含功能名、成功状态、事件时间、CLI 版本、操作系统和 CPU 架构；不包含学号、姓名、查询关键词、课程数据、密码、验证码、Cookie、IP、设备 ID 或联系方式。登录失败与纯本地操作（验证码、status、logout）不上报；统计服务不可用也不影响业务结果。
 
 
 ## 公开预选课查询
@@ -36,6 +36,19 @@ easy-qfnu precourse popular --field teacherName
 ```
 
 查询至少需要一个非空条件，最多返回 500 条；结果来自定时同步快照，不等同于实时选课结果，也不会提交选课或预选课操作。
+
+## 公开推荐查询
+
+选课推荐查询不需要 JWXT 登录，CLI 通过固定的 `recommend.easy-qfnu.top` 只读服务查询已公开的课程-教师评价：
+
+```bash
+easy-qfnu recommendation search --course "高等数学"
+easy-qfnu recommendation search --teacher "张" --top 20
+easy-qfnu recommendation search --course "高等数学" --teacher "张"
+```
+
+至少需要非空的 `--course` 或 `--teacher`；`top` 默认 20、最大 100。同一课程、教师和学年可以有多条评价，结果不含评分。查询不会提交推荐，也不会读取教务 Cookie。提交推荐仍走已有的 `jwxt relay recommendation`。
+
 ## 安全中继
 
 需要提交反馈或使用云端服务时，CLI 只允许固定操作映射到受信任 HTTPS 服务，不接受自定义 URL、域名、路径或 HTTP 方法。请求正文从标准输入读取，Cookie 只从本地 JWXT 会话读取并通过请求头发送，不出现在命令参数、日志或响应中。
