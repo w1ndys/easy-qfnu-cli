@@ -43,7 +43,7 @@ easy-qfnu precourse popular --field teacherName
 ```bash
 printf '%s' '{"category_id":"feature_request","text":"..."}' \
   | easy-qfnu jwxt relay feedback
-printf '%s' '{"course_name":"...","teacher_name":"...","semester":"...","reason":"...","nickname":null}' \
+printf '%s' '{"course_name":"...","teacher_name":"...","year":"...","reason":"...","nickname":null}' \
   | easy-qfnu jwxt relay recommendation
 printf '%s' '{"scope":"both","course_codes":["CS101"]}' \
   | easy-qfnu jwxt relay rank
