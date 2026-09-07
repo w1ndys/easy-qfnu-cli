@@ -369,6 +369,61 @@ def remote_tag_exists(repo: Path, version: str) -> bool:
     raise ReleaseError(f"无法检查源码仓库远端标签: {(result.stderr or result.stdout).strip()}")
 
 
+def local_tag_exists(repo: Path, version: str) -> bool:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", f"refs/tags/{version}"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def tagged_commit(repo: Path, version: str) -> str:
+    return command_text(["git", "rev-parse", f"{version}^{{commit}}"], cwd=repo)
+
+
+def push_annotated_tag(repo: Path, version: str, message: str) -> None:
+    """Create or replace an annotated tag and push it to origin."""
+    local_tag = local_tag_exists(repo, version)
+    remote_tag = remote_tag_exists(repo, version)
+    tag_args = ["git", "tag", "-a", version, "-m", message]
+    if local_tag:
+        tag_args.insert(2, "-f")
+    command(tag_args, cwd=repo)
+    push_args = ["git", "push", "origin", version]
+    if remote_tag:
+        push_args.insert(2, "--force")
+    command(push_args, cwd=repo)
+
+
+def confirm_tag_at_head(repo: Path, version: str) -> None:
+    head = command_text(["git", "rev-parse", "HEAD"], cwd=repo)
+    if tagged_commit(repo, version) != head:
+        raise ReleaseError(f"{repo} 的标签 {version} 没有指到当前 HEAD")
+
+
+def publish_github_release(
+    public_repo: str,
+    version: str,
+    assets: list[Path],
+    notes: str,
+    existing_release: bool,
+    skill_repo: Path | None,
+) -> None:
+    """Create the GitHub Release from the public tag. Replace by delete+create so the source archive follows the tag."""
+    asset_args = [str(asset) for asset in assets]
+    if existing_release:
+        command(["gh", "release", "delete", version, "--repo", public_repo, "--yes"])
+    create = ["gh", "release", "create", version, "--repo", public_repo]
+    if skill_repo is None:
+        create.extend(["--target", "main"])
+    create.extend(["--title", version, "--notes", notes, *asset_args])
+    command(create)
+
+
+
 def parse_module(repo: Path) -> str:
     go_mod = repo / "go.mod"
     if not go_mod.is_file():
@@ -510,61 +565,30 @@ def publish(
     notes: str,
     replace: bool,
     public_only: bool,
+    skill_repo: Path | None,
 ) -> None:
     existing_release = release_exists(public_repo, version)
-    local_tag = False
-    remote_tag = False
-    if not public_only:
-        local_tag = subprocess.run(
-            ["git", "rev-parse", "--verify", f"refs/tags/{version}"],
-            cwd=repo,
-            text=True,
-            capture_output=True,
-            check=False,
-        ).returncode == 0
-        remote_tag = remote_tag_exists(repo, version)
-    if (local_tag or remote_tag or existing_release) and not replace:
+    cli_local = False if public_only else local_tag_exists(repo, version)
+    cli_remote = False if public_only else remote_tag_exists(repo, version)
+    skill_local = local_tag_exists(skill_repo, version) if skill_repo else False
+    skill_remote = remote_tag_exists(skill_repo, version) if skill_repo else False
+    if (cli_local or cli_remote or skill_local or skill_remote or existing_release) and not replace:
         raise ReleaseError(f"版本 {version} 已存在标签或 Release；如需覆盖请明确使用 --replace")
 
     if not public_only:
-        tag_args = ["git", "tag", "-a", version, "-m", f"release(cli): 🚀 发布 easy-qfnu {version}"]
-        if local_tag:
-            tag_args.insert(2, "-f")
-        command(tag_args, cwd=repo)
-        push_args = ["git", "push", "origin", version]
-        if remote_tag:
-            push_args.insert(2, "--force")
-        command(push_args, cwd=repo)
+        push_annotated_tag(repo, version, f"release(cli): 🚀 发布 easy-qfnu {version}")
+    if skill_repo is not None:
+        # Public source zip is built from this tag. --replace must move it to current skill HEAD.
+        push_annotated_tag(skill_repo, version, f"release(skill): 🚀 发布 easy-qfnu {version}")
+        confirm_tag_at_head(skill_repo, version)
 
-    asset_args = [str(asset) for asset in assets]
-    title = version
-    if existing_release:
-        command(["gh", "release", "upload", version, "--repo", public_repo, "--clobber", *asset_args])
-        command(["gh", "release", "edit", version, "--repo", public_repo, "--title", title, "--notes", notes])
-    else:
-        command(
-            [
-                "gh",
-                "release",
-                "create",
-                version,
-                "--repo",
-                public_repo,
-                "--target",
-                "main",
-                "--title",
-                title,
-                "--notes",
-                notes,
-                *asset_args,
-            ]
-        )
-
+    publish_github_release(public_repo, version, assets, notes, existing_release, skill_repo)
     expected = {asset.name for asset in assets}
     actual = set(command_text(["gh", "release", "view", version, "--repo", public_repo, "--json", "assets", "--jq", ".assets[].name"]).splitlines())
     missing = expected - actual
     if missing:
         raise ReleaseError(f"Release 已发布但缺少资产: {', '.join(sorted(missing))}")
+
 
 
 def parse_args() -> argparse.Namespace:
@@ -576,7 +600,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--notes-file", type=Path, default=None, help="可选的 Release 文案文件")
     parser.add_argument("--publish", action="store_true", help="create/push tag and upload release")
     parser.add_argument("--replace", action="store_true", help="replace an existing same-hour tag/release")
-    parser.add_argument("--public-only", action="store_true", help="only update the public Release; do not create or push a source tag")
+    parser.add_argument("--public-only", action="store_true", help="update public Release and skill tag; do not move CLI source tag")
     return parser.parse_args()
 
 
@@ -628,7 +652,7 @@ def main() -> int:
     for asset in assets:
         print(f"  {asset.name} ({asset.stat().st_size} bytes)")
     if args.publish:
-        publish(repo, args.version, public_repo, assets, notes, args.replace, args.public_only)
+        publish(repo, args.version, public_repo, assets, notes, args.replace, args.public_only, skill_repo)
         print(f"发布完成: https://github.com/{public_repo}/releases/tag/{args.version}")
     else:
         print("dry-run 完成；构建产物已缓存，确认发布时将直接复用，无需重新交叉编译。")

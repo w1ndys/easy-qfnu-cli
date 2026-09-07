@@ -47,13 +47,13 @@ description: Build and publish easy-qfnu date-tagged release binaries and fixed-
      --notes-file /path/to/release-notes.md --publish
    ```
 
-3. 同一小时已有版本时，默认停止并要求判断。只有用户明确要求覆盖当前 Release 时才使用 `--replace`；该选项会强制更新源码仓库日期时间标签并覆盖公共 Release 资产：
+3. 同一小时已有版本时，默认停止并要求判断。只有用户明确要求覆盖当前 Release 时才使用 `--replace`。该选项会强制更新 CLI 源码仓库标签，并把公开 skill 仓库的同名标签指到当前 skill HEAD，然后删除并重建 GitHub Release（源码包与发布时间跟随 skill 提交），再上传资产：
 
    ```bash
    python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py --publish --replace
    ```
 
-4. 只重建公共 Release、但不改动 CLI 源码仓库标签时，使用 `--public-only`。这适用于修复已有 Release 的资产或版本清单：
+4. 只重建公共 Release、但不改动 CLI 源码仓库标签时，使用 `--public-only`。这仍会同步公开 skill 仓库标签并重建 GitHub Release，适用于修复已有 Release 的资产、版本清单或过期的 skill 源码包：
 
    ```bash
    python3 .agents/skills/easy-qfnu-release/scripts/publish_release.py \
