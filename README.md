@@ -21,7 +21,7 @@ go run ./cmd/easy-qfnu --help
 
 ## 匿名使用统计
 
-在线查询与提交功能执行后，CLI 会向 `https://hub.easy-qfnu.top/v1/telemetry/events` 上报匿名功能事件，覆盖：`jwc` 通知列表/搜索/正文、新生题库搜索、公开预选课查询、公开推荐查询、`jwxt` 登录成功、成绩、课表、评教列表与确认提交、`relay` 反馈/推荐/排名查询。事件字段仅包含功能名、成功状态、事件时间、CLI 版本、操作系统和 CPU 架构；不包含学号、姓名、查询关键词、课程数据、密码、验证码、Cookie、IP、设备 ID 或联系方式。登录失败与纯本地操作（验证码、status、logout）不上报；统计服务不可用也不影响业务结果。
+在线查询与提交功能执行后，CLI 会向 `https://hub.easy-qfnu.top/v1/telemetry/events` 上报匿名功能事件，覆盖：`jwc` 通知列表/搜索/正文、新生题库搜索、公开预选课查询、公开推荐查询、`jwxt` 登录成功、成绩、课表、评教列表与确认提交、选课轮次即时查询、`relay` 反馈/推荐/排名查询。事件字段仅包含功能名、成功状态、事件时间、CLI 版本、操作系统和 CPU 架构；不包含学号、姓名、查询关键词、课程数据、密码、验证码、Cookie、IP、设备 ID 或联系方式。登录失败与纯本地操作（验证码、status、logout）不上报；统计服务不可用也不影响业务结果。
 
 
 ## 公开预选课查询
@@ -36,6 +36,16 @@ easy-qfnu precourse popular --field teacherName
 ```
 
 查询至少需要一个非空条件，最多返回 500 条；结果来自定时同步快照，不等同于实时选课结果，也不会提交选课或预选课操作。
+
+选课轮次开放时，可用已登录会话做即时查询（比上面的缓存更准确，并能探测课程所在模块）：
+
+```bash
+easy-qfnu jwxt xk rounds
+easy-qfnu jwxt xk search --course "音乐鉴赏"
+easy-qfnu jwxt xk search --teacher "王" --module 公选课
+```
+
+`search` 默认扫描全部选课模块，`located_modules` 表示目标课程实际出现的模块；网页前端可能按年级隐藏这些入口。该命令只读，不会提交选课。无开放轮次时请改用 `precourse search`。
 
 ## 公开推荐查询
 

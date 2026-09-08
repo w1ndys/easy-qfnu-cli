@@ -23,9 +23,10 @@ Commands:
   easy-qfnu jwxt grades [--semester 学年学期]
   easy-qfnu jwxt schedule [--semester 学年学期] [--week 周次] [--kbjcmsid 节次模式]
   easy-qfnu jwxt evaluations | evaluate [--score 89] [--course ID] [--confirm]
+  easy-qfnu jwxt xk rounds | search [--round ID] [--module 公选课] [--course 课程] [--teacher 教师]
   easy-qfnu jwxt status | logout | forget-credentials | relay <feedback|recommendation|rank>
   version
-在线查询与提交功能（jwc、freshman、precourse、recommendation、jwxt 登录成功/成绩/课表/评教、relay）执行后会
+在线查询与提交功能（jwc、freshman、precourse、recommendation、jwxt 登录成功/成绩/课表/评教/选课即时查询、relay）执行后会
 上报匿名功能事件：功能名、成功状态、时间、CLI 版本、操作系统和架构；不含学号、姓名、查询内容
 或 Cookie；登录失败与纯本地操作（captcha/status/logout）不上报，上报失败不影响命令结果。
 

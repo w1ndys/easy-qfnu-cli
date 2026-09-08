@@ -34,6 +34,9 @@ func runJWXT(args []string, out io.Writer) int {
 	if args[0] == "relay" {
 		return runJWXTRelayCommand(args, out)
 	}
+	if args[0] == "xk" {
+		return runJWXTXK(args[1:], out)
+	}
 	command, err := parseJWXTCommand(args[0], args[1:])
 	if err != nil {
 		return writeJSON(out, failure("jwxt", err.Error(), ""))
@@ -53,7 +56,7 @@ func runJWXT(args []string, out io.Writer) int {
 }
 
 func printJWXTUsage(out io.Writer) int {
-	if _, err := fmt.Fprintln(out, "Usage: easy-qfnu jwxt <captcha|login|grades|schedule|evaluations|evaluate|status|logout|forget-credentials|relay>"); err != nil {
+	if _, err := fmt.Fprintln(out, "Usage: easy-qfnu jwxt <captcha|login|grades|schedule|evaluations|evaluate|status|logout|forget-credentials|relay|xk>"); err != nil {
 		return 1
 	}
 	return 2
