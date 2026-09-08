@@ -21,9 +21,9 @@ TARGETS = (
     ("darwin", "arm64", ""),
     ("windows", "amd64", ".exe"),
 )
-GO_TOOLCHAIN = "go1.27.1"
-MIN_GO_VERSION = (1, 27, 0)
-GARBLE_VERSION = "v0.17.1-0.20260828155325-29c42928bf8b"
+GO_TOOLCHAIN = "go1.26.8"
+MIN_GO_VERSION = (1, 26, 2)
+GARBLE_VERSION = "v0.17.0"
 GO_VERSION_RE = re.compile(r"(?<![A-Za-z])go(?P<version>[0-9]+(?:[.][0-9]+){1,2})(?![0-9])")
 VERSION_RE = re.compile(r"^v[0-9]{4}[.][0-9]{2}[.][0-9]{2}[.][0-9]{2}$")
 MODULE_RE = re.compile(r"^module[ \t]+([^ \t\r\n]+)$", re.MULTILINE)
