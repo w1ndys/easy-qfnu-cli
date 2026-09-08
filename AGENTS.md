@@ -21,7 +21,7 @@
 
 - 实现本地教务登录、会话、成绩、课表等能力；
 - 实现固定域名 relay 和匿名统计客户端；
-- 维护客户端 API 消费契约、兼容版本和 Go 二进制发布；
+- 维护客户端 API 消费契约与兼容版本；公开 Release 由 `easy-qfnu-skill` 发布；
 - 负责协调 Hub 与 Skill 的工程变更。
 
 ### easy-qfnu-hub
@@ -56,7 +56,7 @@ API 变更顺序：外部预选课接口与中转契约 → Hub 统计契约 →
 
 - 四个仓库必须分别提交，不跨仓库混合 commit；
 - 每个逻辑改动先完成检查，再展示完整 diff，获得明确确认后才 commit/push；
-- 发布顺序：`easy-qfnu-precourse` → Hub → CLI → Skill；
+- 发布顺序：`easy-qfnu-precourse` → Hub → Skill；
 - 破坏性变更必须同时记录迁移要求、最低兼容版本和回滚方式；
 - 不在提交、日志、测试输出或文档中写入 Cookie、Token、密码、Webhook 或其他密钥。
 
