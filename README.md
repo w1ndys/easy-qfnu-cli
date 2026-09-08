@@ -1,5 +1,7 @@
 # easy-qfnu-cli
 
+> **已归档。** 本仓库不再开发。公开 CLI 已迁到 [easy-qfnu-skill](https://github.com/w1ndys/easy-qfnu-skill) 的标准库 Python 实现。
+
 曲奇教务 skill 使用的 Go CLI 私有源码仓库。
 
 公共用户使用 [easy-qfnu-skill](https://github.com/w1ndys/easy-qfnu-skill) 中的标准库 Python CLI，不需要访问本仓库。命令、JSON 输出和状态目录均使用 `easy-qfnu` 命名。
