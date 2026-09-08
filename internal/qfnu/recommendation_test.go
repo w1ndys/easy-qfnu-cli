@@ -95,7 +95,7 @@ func TestRecommendationSearchDefaultsTopAndPluralDispatch(t *testing.T) {
 	t.Cleanup(func() { recommendationEndpoint = oldEndpoint })
 
 	var output strings.Builder
-	if code := Run([]string{"recommendations", "search", "--teacher", "王"}, &output, io.Discard); code != 0 {
+	if code := Run([]string{"recommendation", "search", "--teacher", "王"}, &output, io.Discard); code != 0 {
 		t.Fatalf("plural dispatch exit code = %d, output = %s", code, output.String())
 	}
 	if requestURL == nil {

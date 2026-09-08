@@ -59,9 +59,9 @@ func Run(args []string, out, errOut io.Writer) int {
 		code = runJWC(args[1:], out)
 	case "freshman":
 		code = runFreshman(args[1:], out)
-	case "precourse", "precourses":
+	case "precourse":
 		code = runPrecourse(args[1:], out)
-	case "recommendation", "recommendations":
+	case "recommendation":
 		code = runRecommendation(args[1:], out)
 	case "jwxt":
 		code = runJWXT(args[1:], out)

@@ -96,7 +96,7 @@ func TestPrecourseMetaPopularAndPluralDispatch(t *testing.T) {
 		t.Fatalf("popular exit code = %d, output = %s", code, output.String())
 	}
 	output.Reset()
-	if code := Run([]string{"precourses", "search", "音乐"}, &output, io.Discard); code != 0 {
+	if code := Run([]string{"precourse", "search", "音乐"}, &output, io.Discard); code != 0 {
 		t.Fatalf("plural dispatch exit code = %d, output = %s", code, output.String())
 	}
 
