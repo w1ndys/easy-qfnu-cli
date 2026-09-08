@@ -38,7 +38,7 @@ func TestRecommendationSearchBuildsQueryAndReturnsItems(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	oldEndpoint := recommendationEndpoint
-	recommendationEndpoint = server.URL + "/v1/recommendations"
+	recommendationEndpoint = server.URL + "/v1/recommendation"
 	t.Cleanup(func() { recommendationEndpoint = oldEndpoint })
 
 	var output strings.Builder
@@ -49,7 +49,7 @@ func TestRecommendationSearchBuildsQueryAndReturnsItems(t *testing.T) {
 	if requestURL == nil {
 		t.Fatal("recommendation request was not sent")
 	}
-	if requestURL.Path != "/v1/recommendations" {
+	if requestURL.Path != "/v1/recommendation" {
 		t.Fatalf("path = %q", requestURL.Path)
 	}
 	query := requestURL.Query()
@@ -91,7 +91,7 @@ func TestRecommendationSearchDefaultsTopAndPluralDispatch(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	oldEndpoint := recommendationEndpoint
-	recommendationEndpoint = server.URL + "/v1/recommendations"
+	recommendationEndpoint = server.URL + "/v1/recommendation"
 	t.Cleanup(func() { recommendationEndpoint = oldEndpoint })
 
 	var output strings.Builder

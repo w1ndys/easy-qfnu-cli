@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const defaultRecommendationEndpoint = "https://recommend.easy-qfnu.top/v1/recommendations"
+const defaultRecommendationEndpoint = "https://recommend.easy-qfnu.top/v1/recommendation"
 
 var (
 	recommendationEndpoint   = defaultRecommendationEndpoint

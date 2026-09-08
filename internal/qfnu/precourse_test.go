@@ -35,7 +35,7 @@ func TestPrecourseSearchBuildsQueryAndReturnsCourses(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	oldEndpoint := precourseEndpoint
-	precourseEndpoint = server.URL + "/v1/precourses"
+	precourseEndpoint = server.URL + "/v1/precourse"
 	t.Cleanup(func() { precourseEndpoint = oldEndpoint })
 
 	var output strings.Builder
@@ -46,7 +46,7 @@ func TestPrecourseSearchBuildsQueryAndReturnsCourses(t *testing.T) {
 	if requestURL == nil {
 		t.Fatal("precourse request was not sent")
 	}
-	if requestURL.Path != "/v1/precourses/search" {
+	if requestURL.Path != "/v1/precourse/search" {
 		t.Fatalf("path = %q", requestURL.Path)
 	}
 	if requestURL.Query().Get("q") != "音乐鉴赏" || requestURL.Query().Get("campus") != "日照" || requestURL.Query().Get("teacherName") != "王老师" {
@@ -84,7 +84,7 @@ func TestPrecourseMetaPopularAndPluralDispatch(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	oldEndpoint := precourseEndpoint
-	precourseEndpoint = server.URL + "/v1/precourses"
+	precourseEndpoint = server.URL + "/v1/precourse"
 	t.Cleanup(func() { precourseEndpoint = oldEndpoint })
 
 	var output strings.Builder
@@ -100,7 +100,7 @@ func TestPrecourseMetaPopularAndPluralDispatch(t *testing.T) {
 		t.Fatalf("plural dispatch exit code = %d, output = %s", code, output.String())
 	}
 
-	if len(paths) != 3 || paths[0] != "/v1/precourses/meta?" || paths[1] != "/v1/precourses/popular?field=college" || paths[2] != "/v1/precourses/search?q=%E9%9F%B3%E4%B9%90" {
+	if len(paths) != 3 || paths[0] != "/v1/precourse/meta?" || paths[1] != "/v1/precourse/popular?field=college" || paths[2] != "/v1/precourse/search?q=%E9%9F%B3%E4%B9%90" {
 		t.Fatalf("paths = %#v", paths)
 	}
 	if len(*events) != 3 || (*events)[0] != "meta:success" || (*events)[1] != "popular:success" || (*events)[2] != "search:success" {

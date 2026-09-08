@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const defaultPrecourseEndpoint = "https://precourse.easy-qfnu.top/v1/precourses"
+const defaultPrecourseEndpoint = "https://precourse.easy-qfnu.top/v1/precourse"
 
 var (
 	precourseEndpoint   = defaultPrecourseEndpoint

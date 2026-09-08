@@ -27,13 +27,13 @@ var relayTargets = map[string]relayTarget{
 		sendsIdempotency: true,
 	},
 	"recommendation": {
-		endpoint:         "https://hub.easy-qfnu.top/v1/recommendation-submissions",
+		endpoint:         "https://hub.easy-qfnu.top/v1/recommendation-submission",
 		method:           http.MethodPost,
 		sendsCookie:      true,
 		sendsIdempotency: true,
 	},
 	"rank": {
-		endpoint:    "https://ranking.easy-qfnu.top/v1/rankings/me",
+		endpoint:    "https://ranking.easy-qfnu.top/v1/ranking/me",
 		method:      http.MethodGet,
 		sendsCookie: true,
 	},

@@ -73,7 +73,7 @@ func TestRelayRankUsesGETAndQueryParameters(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	oldTarget := relayTargets["rank"]
-	relayTargets["rank"] = relayTarget{endpoint: server.URL + "/v1/rankings/me", method: http.MethodGet, sendsCookie: true}
+	relayTargets["rank"] = relayTarget{endpoint: server.URL + "/v1/ranking/me", method: http.MethodGet, sendsCookie: true}
 	t.Cleanup(func() { relayTargets["rank"] = oldTarget })
 
 	var output strings.Builder
@@ -85,7 +85,7 @@ func TestRelayRankUsesGETAndQueryParameters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if method != http.MethodGet || path != "/v1/rankings/me" || string(body) != "" {
+	if method != http.MethodGet || path != "/v1/ranking/me" || string(body) != "" {
 		t.Fatalf("request = %s %s?%s body=%q", method, path, rawQuery, body)
 	}
 	if values.Get("scope") != "both" || strings.Join(values["course_code"], ",") != "CS101,CS102" {
